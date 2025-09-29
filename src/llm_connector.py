@@ -20,7 +20,7 @@ def get_llm(model_name: str) -> ChatOpenAI:
         openai_api_key=os.getenv("OPENROUTER_API_KEY", ""),
         openai_api_base="https://openrouter.ai/api/v1",
         model_name=model_name,
-        max_tokens=10000,
+        max_tokens=16000,
         temperature=0.0,
         default_headers={
             "X-Title": "db enhancer",
@@ -31,6 +31,14 @@ def llm_call_with_so(model: ChatOpenAI, prompt: str, output_format: BaseModel) -
     model = model.with_structured_output(output_format)
     response = model.invoke(prompt)
     return response
+
+def llm_call_with_so_and_fallback(model: ChatOpenAI, prompt: str, output_format: BaseModel, num_retries: int = 3) -> BaseModel:
+    for attempt in range(num_retries):
+        try:
+            return llm_call_with_so(model, prompt, output_format)
+        except Exception as e:
+            logger.error(f"Attempt {attempt + 1} failed: {e}")
+    raise ValueError(f"All {num_retries} attempts failed for LLM call.")
 
 # Example usage:
 if __name__ == "__main__":

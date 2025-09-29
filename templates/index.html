@@ -1,0 +1,949 @@
+<!-- templates/index.html -->
+<!doctype html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DB Optimizer Dashboard</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+        .table-hover tbody tr:hover { cursor: pointer; }
+        .status-badge { font-size: 0.9em; }
+        .modal-body pre { background-color: #212529; padding: 1rem; border-radius: 0.3rem; max-height: 60vh; overflow-y: auto; }
+        .modal-lg { max-width: 80%; }
+        .nav-pills .nav-link.active { background-color: #0d6efd; }
+        #log-content, #diff-content { white-space: pre-wrap; word-wrap: break-word; font-family: monospace; }
+        .mermaid { text-align: center; }
+        /* Analysis tab helpers */
+        .kpi-card .icon-wrap {
+            width: 36px; height: 36px; border-radius: 50%;
+            display: inline-flex; align-items: center; justify-content: center;
+            background: rgba(13,110,253,0.15); color: #0d6efd;
+        }
+        .kpi-card.alert .icon-wrap {
+            background: rgba(220,53,69,0.15); color: #dc3545;
+        }
+        .card-header small { color: #adb5bd; }
+        .chart-container { position: relative; height: 280px; }
+        .cursor-pointer { cursor: pointer; }
+        code.inline { background: rgba(33,37,41,0.7); padding: 0.15rem 0.35rem; border-radius: 0.2rem; }
+    </style>
+</head>
+<body>
+    <div class="container-fluid my-4">
+        <!-- Header -->
+        <header class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom">
+            <h1 class="h3"><i class="bi bi-speedometer2"></i> DB Optimizer Dashboard</h1>
+            <div>
+                <button class="btn btn-outline-secondary me-2" id="statsButton" data-bs-toggle="modal" data-bs-target="#statsModal"><i class="bi bi-bar-chart-line"></i> View Stats</button>
+                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createTaskModal"><i class="bi bi-plus-circle"></i> Create New Task</button>
+            </div>
+        </header>
+
+        <!-- Filters and Refresh -->
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div class="btn-group" role="group" id="statusFilters">
+                <button type="button" class="btn btn-outline-primary active" data-status="">All</button>
+                <button type="button" class="btn btn-outline-info" data-status="RUNNING">Running</button>
+                <button type="button" class="btn btn-outline-success" data-status="DONE">Done</button>
+                <button type="button" class="btn btn-outline-danger" data-status="FAILED">Failed</button>
+            </div>
+            <button class="btn btn-secondary" id="refreshButton"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+        </div>
+
+        <!-- Task Table -->
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead class="table-dark">
+                    <tr>
+                        <th scope="col">Task ID</th>
+                        <th scope="col">Status</th>
+                        <!-- CHANGE: Reverted to previous column layout -->
+                        <th scope="col">Submitted At</th>
+                        <th scope="col">Completed At</th>
+                        <th scope="col">Total Time</th>
+                        <th scope="col" class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="task-table-body">
+                    <!-- JS will populate this -->
+                </tbody>
+            </table>
+            <div id="loadingSpinner" class="text-center p-5 d-none">
+                <div class="spinner-border" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+
+    <!-- Create Task Modal (Unchanged) -->
+    <div class="modal fade" id="createTaskModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title">Create New Analysis Task</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <form id="createTaskForm">
+                        <div class="mb-3"><label for="url" class="form-label">JDBC URL</label><input type="text" class="form-control" id="url" required placeholder="jdbc://some-endpoint/database?login=xxx&password=yyyy"></div>
+                        <div class="mb-3"><label for="ddl" class="form-label">DDL Statements (JSON Array)</label><textarea class="form-control" id="ddl" rows="5" required placeholder='[{"statement": "CREATE TABLE ..."}, {"statement": "CREATE TABLE ..."}]'></textarea></div>
+                        <div class="mb-3"><label for="queries" class="form-label">Queries (JSON Array)</label><textarea class="form-control" id="queries" rows="5" required placeholder='[{"queryid": "uuid", "query": "SELECT ...", "runquantity": 123}]'></textarea></div>
+                        <div id="createError" class="alert alert-danger d-none" role="alert"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="submit" class="btn btn-primary" id="createSubmitBtn"><span id="createSpinner" class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span> Submit Task</button>
+                </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Task Detail Modal -->
+    <div class="modal fade" id="detailModal" tabindex="-1">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title" id="detailModalTitle">Task Details</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <div id="detailSpinner" class="text-center p-5"><div class="spinner-border" role="status"></div></div>
+                    <div id="detailContent" class="d-none">
+                        <!-- CHANGE: Tab order updated -->
+                        <ul class="nav nav-pills mb-3" id="detailTab" role="tablist">
+                            <li class="nav-item" role="presentation"><button class="nav-link active" id="result-tab" data-bs-toggle="tab" data-bs-target="#result" type="button" role="tab">Result</button></li>
+                            <li class="nav-item" role="presentation"><button class="nav-link" id="analysis-tab" data-bs-toggle="tab" data-bs-target="#analysis" type="button" role="tab">Analysis Report</button></li>
+                            <li class="nav-item" role="presentation"><button class="nav-link" id="log-tab" data-bs-toggle="tab" data-bs-target="#log" type="button" role="tab">Logs</button></li>
+                            <li class="nav-item" role="presentation"><button class="nav-link" id="diff-tab" data-bs-toggle="tab" data-bs-target="#diff" type="button" role="tab">Query Diff</button></li>
+                        </ul>
+                        <!-- CHANGE: Tab pane order updated -->
+                        <div class="tab-content">
+                            <div class="tab-pane fade show active" id="result" role="tabpanel">
+                                <h6>Optimized DDL</h6><pre><code id="result-ddl"></code></pre>
+                                <h6>Migration Scripts</h6><pre><code id="result-migrations"></code></pre>
+                                <h6>Rewritten Queries</h6><pre><code id="result-queries"></code></pre>
+                            </div>
+                            <div class="tab-pane fade" id="analysis" role="tabpanel">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <h6 class="mb-0 text-muted">Analysis Dashboard</h6>
+                                    <button class="btn btn-sm btn-outline-light" type="button" data-bs-toggle="collapse" data-bs-target="#rawJsonCollapse" aria-expanded="false" aria-controls="rawJsonCollapse">
+                                        <i class="bi bi-code-slash"></i> Raw JSON
+                                    </button>
+                                </div>
+                                <div id="analysis-root" class="container-fluid p-0"></div>
+                                <div class="collapse mt-3" id="rawJsonCollapse">
+                                    <div class="card card-body">
+                                        <pre id="analysis-raw-json" class="mb-0"></pre>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="tab-pane fade" id="log" role="tabpanel"><pre id="log-content"></pre></div>
+                            <div class="tab-pane fade" id="diff" role="tabpanel"><pre id="diff-content"></pre></div>
+                        </div>
+                    </div>
+                     <div id="detailError" class="alert alert-danger d-none mt-3" role="alert"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats Modal -->
+    <div class="modal fade" id="statsModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title">Task Statistics</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <div class="row text-center mb-4">
+                        <div class="col"><h3 id="totalTasks">0</h3><p class="text-muted">Total</p></div>
+                        <div class="col"><h3 id="runningTasks">0</h3><p class="text-muted">Running</p></div>
+                        <div class="col"><h3 id="doneTasks">0</h3><p class="text-muted">Done</p></div>
+                        <div class="col"><h3 id="failedTasks">0</h3><p class="text-muted">Failed</p></div>
+                    </div>
+                    <h6 class="text-center text-muted">Task Lifecycle</h6>
+                    <div id="mermaid-diagram" class="mermaid"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Bootstrap & Mermaid JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <!-- Chart.js for visualizations -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+    <script>
+    // Initialize Mermaid without startOnLoad
+    mermaid.initialize({
+        startOnLoad: false,
+        theme: 'dark',
+        themeVariables: {
+            darkMode: true
+        }
+    });
+
+    let mermaidRendered = false;
+
+    // ---------- Analysis Dashboard Rendering ----------
+    let analysisCharts = [];
+
+    const chartColors = {
+      text: '#adb5bd',
+      grid: '#2b3035',
+      primary: '#0d6efd',
+      info: '#0dcaf0',
+      success: '#198754',
+      warning: '#ffc107',
+      danger: '#dc3545',
+      purple: '#6f42c1',
+      slate: '#6c757d'
+    };
+
+    const toNumber = (v) => {
+      if (typeof v === 'number') return v;
+      if (typeof v === 'string') return Number(v.replace(/,/g, '')) || 0;
+      return 0;
+    };
+    const nf = (v) => (toNumber(v)).toLocaleString();
+
+    function destroyAnalysisCharts() {
+      analysisCharts.forEach(c => { try { c.destroy(); } catch (e) {} });
+      analysisCharts = [];
+    }
+
+    function baseChartOptions() {
+      return {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            labels: { color: chartColors.text }
+          },
+          tooltip: { mode: 'index', intersect: false }
+        },
+        scales: {
+          x: {
+            ticks: { color: chartColors.text },
+            grid: { color: chartColors.grid }
+          },
+          y: {
+            ticks: { color: chartColors.text },
+            grid: { color: chartColors.grid }
+          }
+        }
+      };
+    }
+
+    function coloredBars(baseColor, count) {
+      const map = {
+        [chartColors.primary]: ['#0d6efd', '#3878ff', '#5c8bff', '#80a0ff', '#a6b7ff'],
+        [chartColors.success]: ['#198754', '#1f9961', '#26ab6f', '#2ebd7d', '#38cf8c'],
+        [chartColors.info]:    ['#0dcaf0', '#29d0f2', '#46d7f4', '#64def6', '#83e5f8'],
+        [chartColors.warning]: ['#ffc107', '#ffca2c', '#ffd24d', '#ffdb70', '#ffe493'],
+        [chartColors.danger]:  ['#dc3545', '#e24a59', '#e9606d', '#ef7782', '#f58f97'],
+        [chartColors.purple]:  ['#6f42c1', '#7c55c8', '#8969cf', '#977dd7', '#a593de'],
+        [chartColors.slate]:   ['#6c757d', '#788189', '#848e95', '#919ba1', '#9ea9ad']
+      };
+      const palette = map[baseColor] || map[chartColors.slate];
+      const arr = [];
+      for (let i = 0; i < count; i++) arr.push(palette[i % palette.length]);
+      return arr;
+    }
+
+    function iconClass(name) {
+      const m = {
+        database: 'bi-database',
+        table: 'bi-table',
+        search: 'bi-search',
+        'exclamation-triangle': 'bi-exclamation-triangle'
+      };
+      return m[name] || 'bi-circle';
+    }
+
+    function renderAnalysis(data) {
+      const root = document.getElementById('analysis-root');
+      destroyAnalysisCharts();
+      root.innerHTML = '';
+
+      if (!data || typeof data !== 'object') {
+        root.innerHTML = `<div class="alert alert-warning">No analysis data available.</div>`;
+        return;
+      }
+
+      const viz = data.visualizations || {};
+      const raw = data.raw_report || {};
+      const exec = viz.executive_summary || {};
+      const metrics = Array.isArray(exec.metrics) ? exec.metrics : [];
+      const optPotential = exec.optimization_potential || (raw.executive_summary ? raw.executive_summary.optimization_potential : '—');
+
+      const colDist = viz.column_distribution || {};
+      const colLabels = colDist.labels || [];
+      const colValues = colDist.data || [];
+      const totalColumns = colDist.total_columns || (raw.schema_insights ? raw.schema_insights.total_columns : 0);
+
+      const qp = viz.query_performance || {};
+      const topQueries = Array.isArray(qp.top_queries) ? qp.top_queries : [];
+      const totalExecutions = qp.total_executions || 0;
+
+      const agg = viz.aggregation_usage || {};
+      const aggLabels = agg.labels || [];
+      const aggValues = agg.data || [];
+
+      const join = viz.join_patterns || {};
+      const joinLabels = join.labels || [];
+      const joinValues = join.data || [];
+
+      const mvs = Array.isArray(viz.materialized_views) ? viz.materialized_views : [];
+
+      const recs = (viz.recommendations && Array.isArray(viz.recommendations.priority_matrix)) ? viz.recommendations.priority_matrix : [];
+      const implOrder = (viz.recommendations && Array.isArray(viz.recommendations.implementation_order)) ? viz.recommendations.implementation_order : [];
+
+      // Derive optional CTE usage from raw report if available
+      const ctePct = raw?.query_patterns?.cte_usage_percent ?? null;
+
+      // Build layout
+      root.innerHTML = `
+        <div class="row g-3">
+          <!-- KPI Row -->
+          <div class="col-12">
+            <div class="row g-3">
+              ${metrics.map(m => {
+                const alert = m.alert ? 'alert border border-danger-subtle' : '';
+                const icon = iconClass(m.icon);
+                return `
+                <div class="col-6 col-md-3 col-xl-2">
+                  <div class="card h-100 kpi-card ${alert}">
+                    <div class="card-body">
+                      <div class="d-flex align-items-center gap-3">
+                        <div class="icon-wrap"><i class="bi ${icon}"></i></div>
+                        <div>
+                          <div class="text-muted small">${m.label || ''}</div>
+                          <div class="fs-4">${m.value ?? '—'}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>`;
+              }).join('')}
+              <div class="col-12 col-md-6 col-xl-4">
+                <div class="card h-100">
+                  <div class="card-body d-flex align-items-center justify-content-between">
+                    <div>
+                      <div class="text-muted small">Optimization Potential</div>
+                      <div class="mt-1">
+                        <span class="badge ${String(optPotential).toLowerCase().includes('high') ? 'bg-success' : (String(optPotential).toLowerCase().includes('medium') ? 'bg-warning text-dark' : 'bg-secondary')}">
+                          ${optPotential}
+                        </span>
+                      </div>
+                    </div>
+                    <div class="text-end">
+                      ${totalColumns ? `<div class="text-muted small">Total Columns</div><div class="fs-5">${totalColumns}</div>` : ''}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Charts Row 1 -->
+          <div class="col-12 col-lg-5">
+            <div class="card h-100">
+              <div class="card-header">Column Distribution ${totalColumns ? `<small>(n=${totalColumns})</small>` : ''}</div>
+              <div class="card-body">
+                <div class="chart-container" style="height:320px">
+                  <canvas id="colDistChart"></canvas>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="col-12 col-lg-7">
+            <div class="card h-100">
+              <div class="card-header">Top High-Volume Queries <small>(Total executions: ${nf(totalExecutions)})</small></div>
+              <div class="card-body">
+                <div class="chart-container" style="height:320px">
+                  <canvas id="hvqChart"></canvas>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Charts Row 2 -->
+          <div class="col-12 col-lg-4">
+            <div class="card h-100">
+              <div class="card-header">Join Patterns</div>
+              <div class="card-body">
+                <div class="chart-container">
+                  <canvas id="joinChart"></canvas>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="col-12 col-lg-4">
+            <div class="card h-100">
+              <div class="card-header">Aggregation Usage</div>
+              <div class="card-body">
+                <div class="chart-container">
+                  <canvas id="aggChart"></canvas>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="col-12 col-lg-4">
+            <div class="card h-100">
+              <div class="card-header">CTE Usage</div>
+              <div class="card-body">
+                <div class="chart-container">
+                  <canvas id="cteChart"></canvas>
+                </div>
+                ${ctePct === null ? '<div class="text-muted small mt-2">No CTE data available.</div>' : ''}
+              </div>
+            </div>
+          </div>
+
+          <!-- Charts Row 3 -->
+          <div class="col-12">
+            <div class="card h-100">
+              <div class="card-header">Materialized View Candidates <small>(by total executions)</small></div>
+              <div class="card-body">
+                <div class="chart-container" style="height:320px">
+                  <canvas id="mvChart"></canvas>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Recommendations & Priority -->
+          <div class="col-12 col-lg-6">
+            <div class="card h-100">
+              <div class="card-header">Recommendations</div>
+              <div class="card-body">
+                <div id="recsList"></div>
+              </div>
+            </div>
+          </div>
+          <div class="col-12 col-lg-6">
+            <div class="card h-100">
+              <div class="card-header">Implementation Priority</div>
+              <div class="card-body">
+                <ol id="priorityList" class="mb-0"></ol>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      // Column distribution doughnut
+      (function renderColDist() {
+        const labels = colLabels;
+        const values = colValues.map(toNumber);
+        const ctx = document.getElementById('colDistChart');
+        const chart = new Chart(ctx, {
+          type: 'doughnut',
+          data: {
+            labels,
+            datasets: [{
+              label: 'Columns',
+              data: values,
+              backgroundColor: coloredBars(chartColors.info, values.length),
+              borderColor: '#00000000'
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { position: 'bottom', labels: { color: chartColors.text } },
+              tooltip: { callbacks: { label: (i) => `${i.label}: ${nf(i.raw)}` } }
+            }
+          }
+        });
+        analysisCharts.push(chart);
+      })();
+
+      // High-volume queries horizontal bar
+      (function renderHVQ() {
+        const labels = topQueries.map(d => d.id || '—');
+        const values = topQueries.map(d => toNumber(d.executions));
+        const ctx = document.getElementById('hvqChart').getContext('2d');
+        const chart = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels,
+            datasets: [{
+              label: 'Executions',
+              data: values,
+              backgroundColor: coloredBars(chartColors.primary, values.length)
+            }]
+          },
+          options: {
+            ...baseChartOptions(),
+            indexAxis: 'y'
+          }
+        });
+        analysisCharts.push(chart);
+      })();
+
+      // Join patterns bar
+      (function renderJoin() {
+        const labels = joinLabels;
+        const values = joinValues.map(toNumber);
+        const ctx = document.getElementById('joinChart').getContext('2d');
+        const chart = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels,
+            datasets: [{
+              label: 'Count',
+              data: values,
+              backgroundColor: coloredBars(chartColors.purple, values.length)
+            }]
+          },
+          options: baseChartOptions()
+        });
+        analysisCharts.push(chart);
+      })();
+
+      // Aggregation usage bar
+      (function renderAgg() {
+        const labels = aggLabels;
+        const values = aggValues.map(toNumber);
+        const ctx = document.getElementById('aggChart').getContext('2d');
+        const chart = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels,
+            datasets: [{
+              label: 'Usage',
+              data: values,
+              backgroundColor: coloredBars(chartColors.warning, values.length)
+            }]
+          },
+          options: baseChartOptions()
+        });
+        analysisCharts.push(chart);
+      })();
+
+      // CTE usage donut (if available)
+      (function renderCTE() {
+        const pct = ctePct;
+        const ctx = document.getElementById('cteChart');
+        if (pct === null || pct === undefined || isNaN(Number(pct))) {
+          // Render an empty chart with "No data"
+          const chart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+              labels: ['No data'],
+              datasets: [{ data: [1], backgroundColor: [chartColors.slate], borderColor: '#00000000' }]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: { legend: { display: false } }
+            }
+          });
+          analysisCharts.push(chart);
+          return;
+        }
+        const chart = new Chart(ctx, {
+          type: 'doughnut',
+          data: {
+            labels: ['CTE used', 'No CTE'],
+            datasets: [{
+              data: [Number(pct), Math.max(0, 100 - Number(pct))],
+              backgroundColor: [chartColors.success, chartColors.slate],
+              borderColor: '#00000000'
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { position: 'bottom', labels: { color: chartColors.text } },
+              tooltip: { callbacks: { label: (c) => `${c.label}: ${c.raw.toFixed(1)}%` } }
+            }
+          }
+        });
+        analysisCharts.push(chart);
+      })();
+
+      // Materialized views chart
+      (function renderMV() {
+        const labels = mvs.map((mv, i) => `MV #${i+1}`);
+        const values = mvs.map(mv => toNumber(mv.executions));
+        const colors = mvs.map(mv => {
+          const s = String(mv.savings || '').toLowerCase();
+          if (s.includes('high')) return chartColors.success;
+          if (s.includes('medium')) return chartColors.warning;
+          return chartColors.slate;
+        });
+        const ctx = document.getElementById('mvChart').getContext('2d');
+        const chart = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels,
+            datasets: [{
+              label: 'Total Executions',
+              data: values,
+              backgroundColor: colors
+            }]
+          },
+          options: baseChartOptions()
+        });
+        analysisCharts.push(chart);
+      })();
+
+      // Recommendations
+      (function renderRecs() {
+        const recsDiv = document.getElementById('recsList');
+        if (!recs.length) {
+          recsDiv.innerHTML = `<div class="text-muted">No recommendations.</div>`;
+          return;
+        }
+        const prBadge = (p) => {
+          const v = String(p || '').toLowerCase();
+          if (v === 'high') return 'bg-success';
+          if (v === 'medium') return 'bg-warning text-dark';
+          if (v === 'low') return 'bg-secondary';
+          return 'bg-secondary';
+        };
+        const effortBadge = (e) => {
+          const v = String(e || '').toLowerCase();
+          if (v === 'low') return 'bg-success';
+          if (v === 'medium') return 'bg-warning text-dark';
+          if (v === 'high') return 'bg-danger';
+          return 'bg-secondary';
+        };
+        recsDiv.innerHTML = recs.map(r => `
+          <div class="border rounded p-3 mb-2">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+              <div class="fw-semibold">${r.name || 'Recommendation'}</div>
+              <div class="d-flex gap-2">
+                <span class="badge ${prBadge(r.priority)}">${r.priority || ''}</span>
+                ${r.effort ? `<span class="badge ${effortBadge(r.effort)}">Effort: ${r.effort}</span>` : ''}
+              </div>
+            </div>
+            ${r.description ? `<div class="text-muted mb-2">${r.description}</div>` : ''}
+            ${r.improvement ? `<div class="small text-success"><i class="bi bi-graph-up-arrow"></i> ${r.improvement}</div>` : ''}
+          </div>
+        `).join('');
+      })();
+
+      // Implementation order
+      (function renderImplOrder() {
+        const list = document.getElementById('priorityList');
+        list.innerHTML = implOrder.map(item => `<li class="mb-1">${item}</li>`).join('');
+      })();
+
+      // Raw JSON viewer
+      const rawEl = document.getElementById('analysis-raw-json');
+      if (rawEl) {
+        try {
+          rawEl.textContent = JSON.stringify(raw && Object.keys(raw).length ? raw : data, null, 2);
+        } catch {
+          rawEl.textContent = 'Raw JSON unavailable.';
+        }
+      }
+    }
+    // ---------- End Analysis Dashboard Rendering ----------
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const taskTableBody = document.getElementById('task-table-body');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        const refreshButton = document.getElementById('refreshButton');
+        const filterButtons = document.querySelectorAll('#statusFilters button');
+        const createTaskForm = document.getElementById('createTaskForm');
+        const createSubmitBtn = document.getElementById('createSubmitBtn');
+        const createSpinner = document.getElementById('createSpinner');
+        const createError = document.getElementById('createError');
+
+        let currentFilter = '';
+
+        const formatDateTime = (isoString) => {
+            if (!isoString) {
+                return 'N/A';
+            }
+            return new Date(isoString).toLocaleString();
+        };
+
+        const formatDuration = (startISO, endISO) => {
+            if (!startISO || !endISO) return 'N/A';
+            const startTime = new Date(startISO);
+            const endTime = new Date(endISO);
+            let durationMs = endTime - startTime;
+            let seconds = Math.floor(durationMs / 1000);
+            let minutes = Math.floor(seconds / 60);
+            seconds = seconds % 60;
+            let result = '';
+            if (minutes > 0) { result += `${minutes}m `; }
+            result += `${seconds}s`;
+            return result;
+        };
+
+        const getStatusBadge = (status) => {
+            const badges = {
+                'RUNNING': 'bg-info text-dark',
+                'DONE': 'bg-success',
+                'FAILED': 'bg-danger'
+            };
+            return `<span class="badge ${badges[status] || 'bg-secondary'} status-badge">${status}</span>`;
+        };
+
+        const fetchTasks = async (status = '') => {
+            loadingSpinner.classList.remove('d-none');
+            taskTableBody.innerHTML = '';
+            try {
+                const response = await fetch(`/tasks?status=${status}`);
+                const tasks = await response.json();
+
+                if (tasks.length === 0) {
+                    taskTableBody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">No tasks found.</td></tr>`;
+                } else {
+                    tasks.forEach(task => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td><small>${task.taskid}</small></td>
+                            <td>${getStatusBadge(task.status)}</td>
+                            <td>${formatDateTime(task.submitted_at)}</td>
+                            <td>${formatDateTime(task.completed_at)}</td>
+                            <td>${formatDuration(task.submitted_at, task.completed_at)}</td>
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-outline-light view-details" data-task-id="${task.taskid}" data-status="${task.status}" data-bs-toggle="modal" data-bs-target="#detailModal">
+                                    <i class="bi bi-eye"></i> View
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger delete-task" data-task-id="${task.taskid}">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </td>
+                        `;
+                        taskTableBody.appendChild(row);
+                    });
+                }
+            } catch (error) {
+                taskTableBody.innerHTML = `<tr><td colspan="6" class="text-center text-danger">Error fetching tasks.</td></tr>`;
+                console.error('Error fetching tasks:', error);
+            } finally {
+                loadingSpinner.classList.add('d-none');
+            }
+        };
+
+        const deleteTask = async (taskId) => {
+            if (!confirm(`Are you sure you want to delete task ${taskId}?`)) return;
+            try {
+                const response = await fetch(`/task/${taskId}`, { method: 'DELETE' });
+                if (response.ok) {
+                    fetchTasks(currentFilter);
+                } else {
+                    alert('Failed to delete task.');
+                }
+            } catch (error) {
+                alert('Error deleting task.');
+                console.error('Error deleting task:', error);
+            }
+        };
+
+        // Event Listeners
+        refreshButton.addEventListener('click', () => fetchTasks(currentFilter));
+
+        filterButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                filterButtons.forEach(btn => btn.classList.remove('active'));
+                button.classList.add('active');
+                currentFilter = button.dataset.status;
+                fetchTasks(currentFilter);
+            });
+        });
+
+        taskTableBody.addEventListener('click', (e) => {
+            const deleteBtn = e.target.closest('.delete-task');
+            if (deleteBtn) {
+                deleteTask(deleteBtn.dataset.taskId);
+            }
+        });
+
+        createTaskForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            createSubmitBtn.disabled = true;
+            createSpinner.classList.remove('d-none');
+            createError.classList.add('d-none');
+
+            try {
+                const payload = {
+                    url: document.getElementById('url').value,
+                    ddl: JSON.parse(document.getElementById('ddl').value),
+                    queries: JSON.parse(document.getElementById('queries').value)
+                };
+
+                const response = await fetch('/new', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (response.ok) {
+                    bootstrap.Modal.getInstance(document.getElementById('createTaskModal')).hide();
+                    createTaskForm.reset();
+                    fetchTasks(currentFilter);
+                } else {
+                    const errorData = await response.json();
+                    createError.textContent = `Error: ${errorData.detail || 'Failed to create task.'}`;
+                    createError.classList.remove('d-none');
+                }
+            } catch (error) {
+                createError.textContent = `Error: Invalid JSON in DDL or Queries fields. ${error.message}`;
+                createError.classList.remove('d-none');
+            } finally {
+                createSubmitBtn.disabled = false;
+                createSpinner.classList.add('d-none');
+            }
+        });
+
+        const detailModal = document.getElementById('detailModal');
+        detailModal.addEventListener('show.bs.modal', async (event) => {
+            const button = event.relatedTarget;
+            const taskId = button.dataset.taskId;
+            const status = button.dataset.status;
+
+            const title = document.getElementById('detailModalTitle');
+            const spinner = document.getElementById('detailSpinner');
+            const content = document.getElementById('detailContent');
+            const errorDiv = document.getElementById('detailError');
+
+            title.textContent = `Task Details: ${taskId.substring(0, 8)}...`;
+            spinner.classList.remove('d-none');
+            content.classList.add('d-none');
+            errorDiv.classList.add('d-none');
+
+            // Reset tabs to Result by default
+            const resultTab = new bootstrap.Tab(document.getElementById('result-tab'));
+            resultTab.show();
+
+            // Fetch Analysis Report and render charts
+            try {
+                const analysisRes = await fetch(`/task/${taskId}/analysis`);
+                const analysisData = await analysisRes.json();
+                renderAnalysis(analysisData);
+            } catch (e) {
+                const root = document.getElementById('analysis-root');
+                if (root) root.innerHTML = `<div class="alert alert-danger">Error loading analysis report.</div>`;
+            }
+
+            // Fetch logs
+            try {
+                const logRes = await fetch(`/task/${taskId}/log`);
+                const logs = await logRes.json();
+                document.getElementById('log-content').textContent = logs.map(l => `${formatDateTime(l.timestamp)} [${l.level}] ${l.message}`).join('\n');
+            } catch (e) { document.getElementById('log-content').textContent = 'Error loading logs.'; }
+
+            // Fetch results and diff only if DONE
+            if (status === 'DONE') {
+                try {
+                    const diffRes = await fetch(`/task/${taskId}/diff`);
+                    const diffData = await diffRes.json();
+                    document.getElementById('diff-content').textContent = diffData.diffs.map(d => `--- Query ID: ${d.queryid} ---\n${d.diff}`).join('\n\n');
+
+                    const resultRes = await fetch(`/getresult?task_id=${taskId}`);
+                    if (!resultRes.ok) throw new Error((await resultRes.json()).detail);
+
+                    const resultData = await resultRes.json();
+                    document.getElementById('result-ddl').textContent = resultData.ddl.map(d => d.statement + ';').join('\n');
+                    document.getElementById('result-migrations').textContent = resultData.migrations.map(m => m.statement + ';').join('\n');
+                    document.getElementById('result-queries').textContent = JSON.stringify(resultData.queries, null, 2);
+
+                } catch (e) {
+                     errorDiv.textContent = `Error loading results: ${e.message}`;
+                     errorDiv.classList.remove('d-none');
+                }
+            } else {
+                 document.getElementById('result-ddl').textContent = 'Task is not yet DONE.';
+                 document.getElementById('result-migrations').textContent = '';
+                 document.getElementById('result-queries').textContent = '';
+                 document.getElementById('diff-content').textContent = 'Task is not yet DONE.';
+            }
+
+            spinner.classList.add('d-none');
+            content.classList.remove('d-none');
+        });
+
+        // Clean up charts when modal closes
+        detailModal.addEventListener('hidden.bs.modal', () => {
+          destroyAnalysisCharts();
+          const root = document.getElementById('analysis-root');
+          if (root) root.innerHTML = '';
+          const raw = document.getElementById('analysis-raw-json');
+          if (raw) raw.textContent = '';
+          const collapse = document.getElementById('rawJsonCollapse');
+          if (collapse && collapse.classList.contains('show')) {
+            const coll = bootstrap.Collapse.getInstance(collapse);
+            if (coll) coll.hide();
+          }
+        });
+
+        const statsModal = document.getElementById('statsModal');
+
+        // Use 'show.bs.modal' to load stats data
+        statsModal.addEventListener('show.bs.modal', async () => {
+            try {
+                const response = await fetch('/tasks');
+                const tasks = await response.json();
+                document.getElementById('totalTasks').textContent = tasks.length;
+                document.getElementById('runningTasks').textContent = tasks.filter(t => t.status === 'RUNNING').length;
+                document.getElementById('doneTasks').textContent = tasks.filter(t => t.status === 'DONE').length;
+                document.getElementById('failedTasks').textContent = tasks.filter(t => t.status === 'FAILED').length;
+            } catch (e) {
+                console.error('Could not fetch stats', e);
+            }
+        });
+
+        // Use 'shown.bs.modal' to render Mermaid after modal is fully visible
+        statsModal.addEventListener('shown.bs.modal', async () => {
+            if (!mermaidRendered) {
+                const element = document.getElementById('mermaid-diagram');
+
+                const mermaidCode = `
+stateDiagram-v2
+    direction LR
+    [*] --> RUNNING: POST /new
+    RUNNING --> DONE: Success
+    RUNNING --> FAILED: Error/Timeout
+    DONE --> [*]
+    FAILED --> [*]
+                `;
+
+                try {
+                    // Clear any existing content
+                    element.innerHTML = '';
+
+                    // Generate unique ID for this diagram
+                    const diagramId = 'mermaid-' + Date.now();
+
+                    // Use mermaid.render to get the SVG
+                    const { svg } = await mermaid.render(diagramId, mermaidCode);
+                    element.innerHTML = svg;
+                    mermaidRendered = true;
+                } catch (error) {
+                    console.error('Mermaid rendering error:', error);
+                    element.innerHTML = '<p class="text-muted text-center">Task Lifecycle Diagram<br><small>(Diagram could not be rendered)</small></p>';
+                }
+            }
+        });
+
+        // Reset mermaid flag when modal is hidden so it can be re-rendered if needed
+        statsModal.addEventListener('hidden.bs.modal', () => {
+            mermaidRendered = false;
+            // Also clear the content to ensure it's fresh on next open
+            const element = document.getElementById('mermaid-diagram');
+            if (element) {
+                element.innerHTML = '';
+            }
+        });
+
+        // Initial load
+        fetchTasks();
+    });
+</script>
+</body>
+</html>
