@@ -1,0 +1,9 @@
+trino
+pandas
+loguru
+fastapi
+uvicorn[standard]
+pydantic
+langchain-openai
+python-dotenv
+sqlalchemy

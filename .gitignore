@@ -1,0 +1,13 @@
+backup
+data
+.env
+
+# service files
+*.log
+*.sqlite3
+__pycache__
+*.pyc
+
+# IDE files
+.vscode
+.idea
