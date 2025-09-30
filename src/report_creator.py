@@ -4,6 +4,8 @@ from typing import Dict, List, Any
 from dataclasses import dataclass
 import pandas as pd
 
+from src.ddl_parser import DDLParser
+
 
 @dataclass
 class OptimizationSummary:
@@ -307,6 +309,206 @@ def create_summary_tables(optimization_report: Dict) -> Dict[str, pd.DataFrame]:
         'optimization_recommendations': pd.DataFrame(recommendations_data),
         'materialized_view_candidates': pd.DataFrame(mv_data) if mv_data else pd.DataFrame()
     }
+
+# ========== Insights and Reporting ==========
+def create_insights_report(ddl_statements: List[Dict], queries: List[Dict]) -> Dict[str, Any]:
+    """
+    Create comprehensive schema insights report from DDL and queries.
+
+    Args:
+        ddl_statements: List of DDL statement dicts with 'statement' key
+        queries: List of query dicts with 'queryid', 'query', 'runquantity' keys
+
+    Returns:
+        Dict containing detailed schema insights for visualization
+    """
+    parser = DDLParser()
+
+    # Parse tables from DDL
+    tables = parser.parse_ddl_statements(ddl_statements)
+
+    if not tables:
+        return {
+            "total_columns": 0,
+            "total_tables": 0,
+            "tables": [],
+            "column_types_distribution": {},
+            "index_coverage": {
+                "indexed_tables": 0,
+                "total_indexes": 0,
+                "coverage_percent": 0,
+                "recommendations": "No tables found in schema."
+            },
+            "data_quality": {
+                "nullable_columns_percent": 0,
+                "tables_without_pk": 0,
+                "orphaned_tables": 0
+            }
+        }
+
+    # Get schema insights using DDLParser
+    schema_insights = parser.get_schema_insights(tables, queries)
+
+    # Get column type distribution
+    stats = parser.get_table_stats(tables)
+
+    # Enhance with additional analysis
+    data_quality = _analyze_data_quality(tables, queries)
+    query_coverage = _analyze_query_coverage(tables, queries)
+
+    return {
+        "total_columns": schema_insights["total_columns"],
+        "total_tables": schema_insights["total_tables"],
+        "tables": schema_insights["tables"],
+        "column_types_distribution": stats["column_types_distribution"],
+        "index_coverage": schema_insights["index_coverage"],
+        "data_quality": data_quality,
+        "query_coverage": query_coverage,
+        "partitioning_candidates": _identify_partitioning_candidates(tables),
+        "denormalization_opportunities": _identify_denormalization_opportunities(tables, queries)
+    }
+
+
+def _analyze_data_quality(tables: List, queries: List[Dict]) -> Dict[str, Any]:
+    """Analyze data quality metrics from schema."""
+    if not tables:
+        return {
+            "nullable_columns_percent": 0,
+            "tables_without_pk": 0,
+            "orphaned_tables": 0,
+            "recommendations": []
+        }
+
+    total_columns = sum(len(t.columns) for t in tables)
+    nullable_columns = sum(1 for t in tables for c in t.columns if c.nullable)
+
+    parser = DDLParser()
+    tables_without_pk = sum(1 for t in tables if not parser._has_primary_key(t))
+
+    # Check for orphaned tables (not referenced in queries)
+    orphaned_tables = 0
+    query_text = ' '.join(q.get('query', '').lower() for q in queries)
+    for table in tables:
+        table_name = table.name.lower()
+        if table_name not in query_text:
+            orphaned_tables += 1
+
+    # Generate recommendations
+    recommendations = []
+    nullable_pct = round((nullable_columns / total_columns * 100), 1) if total_columns > 0 else 0
+
+    if nullable_pct > 50:
+        recommendations.append("High percentage of nullable columns may indicate schema design issues")
+    if tables_without_pk > 0:
+        recommendations.append(
+            f"{tables_without_pk} table(s) missing primary keys - consider adding for data integrity")
+    if orphaned_tables > 0:
+        recommendations.append(f"{orphaned_tables} table(s) not referenced in queries - consider archiving or removal")
+
+    return {
+        "nullable_columns_percent": nullable_pct,
+        "tables_without_pk": tables_without_pk,
+        "orphaned_tables": orphaned_tables,
+        "total_columns": total_columns,
+        "recommendations": recommendations
+    }
+
+
+def _analyze_query_coverage(tables: List, queries: List[Dict]) -> Dict[str, Any]:
+    """Analyze which tables are used in queries and how frequently."""
+    if not tables or not queries:
+        return {"table_usage": {}, "unused_tables": [], "most_queried_table": None}
+
+    table_usage = {t.name.lower(): 0 for t in tables}
+
+    for query in queries:
+        query_text = query.get('query', '').lower()
+        run_quantity = query.get('runquantity', 0)
+
+        for table_name in table_usage.keys():
+            if f'from {table_name}' in query_text or f'join {table_name}' in query_text:
+                table_usage[table_name] += run_quantity
+
+    unused_tables = [name for name, count in table_usage.items() if count == 0]
+    most_queried = max(table_usage.items(), key=lambda x: x[1]) if table_usage else None
+
+    return {
+        "table_usage": {k: v for k, v in sorted(table_usage.items(), key=lambda x: x[1], reverse=True)},
+        "unused_tables": unused_tables,
+        "most_queried_table": most_queried[0] if most_queried else None,
+        "most_queried_count": most_queried[1] if most_queried else 0
+    }
+
+
+def _identify_partitioning_candidates(tables: List) -> List[Dict[str, Any]]:
+    """Identify columns suitable for partitioning."""
+    candidates = []
+
+    date_keywords = ['date', 'time', 'year', 'month', 'quarter', 'day', 'timestamp', 'created', 'updated']
+
+    for table in tables:
+        table_candidates = []
+        for column in table.columns:
+            col_name_lower = column.name.lower()
+            col_type_lower = column.data_type.lower()
+
+            # Check if column name or type suggests it's date-related
+            if any(keyword in col_name_lower for keyword in date_keywords) or 'date' in col_type_lower:
+                table_candidates.append({
+                    "column": column.name,
+                    "type": column.data_type,
+                    "reason": "Date/time column suitable for time-based partitioning"
+                })
+
+        if table_candidates:
+            candidates.append({
+                "table": f"{table.schema}.{table.name}" if table.schema else table.name,
+                "candidates": table_candidates,
+                "recommended_strategy": "RANGE or LIST partitioning by date"
+            })
+
+    return candidates
+
+
+def _identify_denormalization_opportunities(tables: List, queries: List[Dict]) -> Dict[str, Any]:
+    """Identify opportunities for denormalization based on query patterns."""
+    if len(tables) <= 1:
+        return {
+            "opportunity_level": "low",
+            "reason": "Single table - already denormalized",
+            "recommendations": []
+        }
+
+    # Count joins in queries
+    total_joins = 0
+    complex_joins = 0
+
+    for query in queries:
+        query_text = query.get('query', '').upper()
+        join_count = query_text.count('JOIN')
+        total_joins += join_count * query.get('runquantity', 0)
+        if join_count > 3:
+            complex_joins += query.get('runquantity', 0)
+
+    recommendations = []
+    opportunity_level = "low"
+
+    if complex_joins > 1000:
+        opportunity_level = "high"
+        recommendations.append(
+            "High frequency of complex joins detected - consider denormalizing frequently joined tables")
+        recommendations.append("Create materialized views for common join patterns")
+    elif total_joins > 5000:
+        opportunity_level = "medium"
+        recommendations.append("Moderate join activity - consider selective denormalization for hot paths")
+
+    return {
+        "opportunity_level": opportunity_level,
+        "total_join_operations": total_joins,
+        "complex_join_queries": complex_joins,
+        "recommendations": recommendations
+    }
+
 
 
 # Пример использования

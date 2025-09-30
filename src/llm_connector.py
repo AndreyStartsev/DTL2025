@@ -14,13 +14,13 @@ class RewrittenQueries(BaseModel):
 
 load_dotenv(find_dotenv())
 
-def get_llm(model_name: str) -> ChatOpenAI:
+def get_llm(model_name: str, max_tokens=16000) -> ChatOpenAI:
     """Initializes and returns a ChatOpenAI instance for OpenRouter."""
     return ChatOpenAI(
         openai_api_key=os.getenv("OPENROUTER_API_KEY", ""),
         openai_api_base="https://openrouter.ai/api/v1",
         model_name=model_name,
-        max_tokens=16000,
+        max_tokens=max_tokens,
         temperature=0.0,
         default_headers={
             "X-Title": "db enhancer",
@@ -32,8 +32,14 @@ def llm_call_with_so(model: ChatOpenAI, prompt: str, output_format: BaseModel) -
     response = model.invoke(prompt)
     return response
 
-def llm_call_with_so_and_fallback(model: ChatOpenAI, prompt: str, output_format: BaseModel, num_retries: int = 3) -> BaseModel:
+def llm_call_with_so_and_fallback(model: ChatOpenAI, prompt: str, output_format: BaseModel,
+                                  num_retries: int = 3,
+                                  fallback_model_id="google/gemini-2.5-flash") -> BaseModel:
     for attempt in range(num_retries):
+        # for last attempt use fallback model
+        if attempt == num_retries - 1:
+            logger.warning("Using fallback model for the last attempt.")
+            model = get_llm(fallback_model_id, max_tokens=18000)
         try:
             return llm_call_with_so(model, prompt, output_format)
         except Exception as e:
@@ -42,7 +48,7 @@ def llm_call_with_so_and_fallback(model: ChatOpenAI, prompt: str, output_format:
 
 # Example usage:
 if __name__ == "__main__":
-    model_name = "google/gemini-2.5-flash"
+    model_name = "meta-llama/llama-4-maverick"
     llm = get_llm(model_name)
     logger.success(f"Initialized LLM with model: {model_name}")
 

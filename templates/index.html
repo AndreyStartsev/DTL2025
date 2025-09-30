@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>DB Optimizer Dashboard</title>
+    <title>Database Optimizer</title>
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Bootstrap Icons -->
@@ -16,7 +16,7 @@
         .modal-body pre { background-color: #212529; padding: 1rem; border-radius: 0.3rem; max-height: 60vh; overflow-y: auto; }
         .modal-lg { max-width: 80%; }
         .nav-pills .nav-link.active { background-color: #0d6efd; }
-        #log-content, #diff-content { white-space: pre-wrap; word-wrap: break-word; font-family: monospace; }
+        #diff-content { white-space: pre-wrap; word-wrap: break-word; font-family: monospace; }
         .mermaid { text-align: center; }
         /* Analysis tab helpers */
         .kpi-card .icon-wrap {
@@ -29,8 +29,52 @@
         }
         .card-header small { color: #adb5bd; }
         .chart-container { position: relative; height: 280px; }
-        .cursor-pointer { cursor: pointer; }
         code.inline { background: rgba(33,37,41,0.7); padding: 0.15rem 0.35rem; border-radius: 0.2rem; }
+
+        /* Compact and aligned logs */
+        #log-content {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-size: 0.85rem;
+            line-height: 1.25;
+        }
+        .log-row {
+            display: grid;
+            grid-template-columns: 170px 90px 1fr;
+            align-items: baseline;
+            gap: .5rem;
+            padding: .2rem .4rem;
+            border-left: 3px solid transparent;
+            border-radius: .25rem;
+        }
+        .log-time { color: #9aa0a6; }
+        .log-level-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 .4rem;
+            height: 1.25rem;
+            border-radius: .25rem;
+            border: 1px solid transparent;
+            font-weight: 600;
+            font-size: .72rem;
+            line-height: 1;
+            min-width: 80px;
+        }
+        .log-msg { color: #e9ecef; white-space: pre-wrap; }
+
+        /* Level theming */
+        .log-row.info    { border-left-color: #3a3f44; background: rgba(60,65,70,0.15); }
+        .log-row.info .log-msg { color: #9aa0a6; }
+        .log-level-badge.info { color: #9aa0a6; border-color: #3a3f44; background: transparent; }
+
+        .log-row.success { border-left-color: #00c853; background: rgba(0,200,83,0.06); }
+        .log-level-badge.success { color: #00c853; border-color: #00c853; background: transparent; }
+
+        .log-row.warning { border-left-color: #ffc107; background: rgba(255,193,7,0.06); }
+        .log-level-badge.warning { color: #ffc107; border-color: #ffc107; background: transparent; }
+
+        .log-row.error   { border-left-color: #b00020; background: rgba(176,0,32,0.08); }
+        .log-level-badge.error { color: #b00020; border-color: #b00020; background: transparent; }
     </style>
 </head>
 <body>
@@ -62,7 +106,6 @@
                     <tr>
                         <th scope="col">Task ID</th>
                         <th scope="col">Status</th>
-                        <!-- CHANGE: Reverted to previous column layout -->
                         <th scope="col">Submitted At</th>
                         <th scope="col">Completed At</th>
                         <th scope="col">Total Time</th>
@@ -83,7 +126,7 @@
 
     <!-- Modals -->
 
-    <!-- Create Task Modal (Unchanged) -->
+    <!-- Create Task Modal -->
     <div class="modal fade" id="createTaskModal" tabindex="-1">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
@@ -108,24 +151,57 @@
     <div class="modal fade" id="detailModal" tabindex="-1">
         <div class="modal-dialog modal-xl">
             <div class="modal-content">
-                <div class="modal-header"><h5 class="modal-title" id="detailModalTitle">Task Details</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-header">
+                    <h5 class="modal-title" id="detailModalTitle">Task Details</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
                 <div class="modal-body">
-                    <div id="detailSpinner" class="text-center p-5"><div class="spinner-border" role="status"></div></div>
+                    <div id="detailSpinner" class="text-center p-5">
+                        <div class="spinner-border" role="status"></div>
+                    </div>
                     <div id="detailContent" class="d-none">
-                        <!-- CHANGE: Tab order updated -->
+                        <!-- Navigation Tabs -->
                         <ul class="nav nav-pills mb-3" id="detailTab" role="tablist">
-                            <li class="nav-item" role="presentation"><button class="nav-link active" id="result-tab" data-bs-toggle="tab" data-bs-target="#result" type="button" role="tab">Result</button></li>
-                            <li class="nav-item" role="presentation"><button class="nav-link" id="analysis-tab" data-bs-toggle="tab" data-bs-target="#analysis" type="button" role="tab">Analysis Report</button></li>
-                            <li class="nav-item" role="presentation"><button class="nav-link" id="log-tab" data-bs-toggle="tab" data-bs-target="#log" type="button" role="tab">Logs</button></li>
-                            <li class="nav-item" role="presentation"><button class="nav-link" id="diff-tab" data-bs-toggle="tab" data-bs-target="#diff" type="button" role="tab">Query Diff</button></li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active" id="result-tab" data-bs-toggle="tab" data-bs-target="#result" type="button" role="tab">
+                                    <i class="bi bi-file-earmark-code"></i> Result
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="analysis-tab" data-bs-toggle="tab" data-bs-target="#analysis" type="button" role="tab">
+                                    <i class="bi bi-graph-up"></i> Analysis Report
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="schema-tab" data-bs-toggle="tab" data-bs-target="#schema" type="button" role="tab">
+                                    <i class="bi bi-diagram-3"></i> Schema Overview
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="log-tab" data-bs-toggle="tab" data-bs-target="#log" type="button" role="tab">
+                                    <i class="bi bi-terminal"></i> Logs
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="diff-tab" data-bs-toggle="tab" data-bs-target="#diff" type="button" role="tab">
+                                    <i class="bi bi-code-square"></i> Query Diff
+                                </button>
+                            </li>
                         </ul>
-                        <!-- CHANGE: Tab pane order updated -->
+
+                        <!-- Tab Content -->
                         <div class="tab-content">
+                            <!-- Result Tab -->
                             <div class="tab-pane fade show active" id="result" role="tabpanel">
-                                <h6>Optimized DDL</h6><pre><code id="result-ddl"></code></pre>
-                                <h6>Migration Scripts</h6><pre><code id="result-migrations"></code></pre>
-                                <h6>Rewritten Queries</h6><pre><code id="result-queries"></code></pre>
+                                <h6>Optimized DDL</h6>
+                                <pre><code id="result-ddl"></code></pre>
+                                <h6>Migration Scripts</h6>
+                                <pre><code id="result-migrations"></code></pre>
+                                <h6>Rewritten Queries</h6>
+                                <pre><code id="result-queries"></code></pre>
                             </div>
+
+                            <!-- Analysis Report Tab -->
                             <div class="tab-pane fade" id="analysis" role="tabpanel">
                                 <div class="d-flex justify-content-between align-items-center mb-2">
                                     <h6 class="mb-0 text-muted">Analysis Dashboard</h6>
@@ -140,11 +216,130 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="tab-pane fade" id="log" role="tabpanel"><pre id="log-content"></pre></div>
-                            <div class="tab-pane fade" id="diff" role="tabpanel"><pre id="diff-content"></pre></div>
+
+                            <!-- Schema Overview Tab -->
+                            <div class="tab-pane fade" id="schema" role="tabpanel">
+                                <div class="row g-3">
+                                    <!-- Tables Summary Card -->
+                                    <div class="col-12 col-lg-6">
+                                        <div class="card h-100">
+                                            <div class="card-header d-flex justify-content-between align-items-center">
+                                                <span><i class="bi bi-table"></i> Tables Summary</span>
+                                                <span class="badge bg-primary" id="schema-table-count">0</span>
+                                            </div>
+                                            <div class="card-body">
+                                                <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                                                    <table class="table table-sm table-hover mb-0">
+                                                        <thead class="sticky-top bg-dark">
+                                                            <tr>
+                                                                <th>Table</th>
+                                                                <th class="text-end">Columns</th>
+                                                                <th class="text-end">Est. Rows</th>
+                                                                <th class="text-center">PK</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody id="schema-tables-list">
+                                                            <tr><td colspan="4" class="text-center text-muted">Loading...</td></tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Data Types Distribution Card -->
+                                    <div class="col-12 col-lg-6">
+                                        <div class="card h-100">
+                                            <div class="card-header">
+                                                <i class="bi bi-pie-chart"></i> Data Types Distribution
+                                            </div>
+                                            <div class="card-body">
+                                                <div class="chart-container" style="height: 320px;">
+                                                    <canvas id="dataTypesChart"></canvas>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Index Coverage Card -->
+                                    <div class="col-12 col-lg-6">
+                                        <div class="card h-100">
+                                            <div class="card-header">
+                                                <i class="bi bi-lightning-charge"></i> Index Coverage Analysis
+                                            </div>
+                                            <div class="card-body">
+                                                <div id="index-coverage-info">
+                                                    <div class="text-center text-muted">
+                                                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                                                        <div class="small mt-2">Loading index data...</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Data Quality Card -->
+                                    <div class="col-12 col-lg-6">
+                                        <div class="card h-100">
+                                            <div class="card-header">
+                                                <i class="bi bi-shield-check"></i> Data Quality Metrics
+                                            </div>
+                                            <div class="card-body">
+                                                <div id="data-quality-info">
+                                                    <div class="text-center text-muted">
+                                                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                                                        <div class="small mt-2">Analyzing data quality...</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Query Coverage Card -->
+                                    <div class="col-12">
+                                        <div class="card">
+                                            <div class="card-header">
+                                                <i class="bi bi-activity"></i> Table Usage in Queries
+                                            </div>
+                                            <div class="card-body">
+                                                <div class="chart-container" style="height: 280px;">
+                                                    <canvas id="tableUsageChart"></canvas>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Partitioning Candidates Card -->
+                                    <div class="col-12">
+                                        <div class="card">
+                                            <div class="card-header">
+                                                <i class="bi bi-scissors"></i> Partitioning Candidates
+                                            </div>
+                                            <div class="card-body">
+                                                <div id="partitioning-candidates">
+                                                    <div class="text-center text-muted">
+                                                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                                                        <div class="small mt-2">Identifying partitioning opportunities...</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Logs Tab -->
+                            <div class="tab-pane fade" id="log" role="tabpanel">
+                                <div id="log-content"></div>
+                            </div>
+
+                            <!-- Query Diff Tab -->
+                            <div class="tab-pane fade" id="diff" role="tabpanel">
+                                <pre id="diff-content"></pre>
+                            </div>
                         </div>
                     </div>
-                     <div id="detailError" class="alert alert-danger d-none mt-3" role="alert"></div>
+                    <div id="detailError" class="alert alert-danger d-none mt-3" role="alert"></div>
                 </div>
             </div>
         </div>
@@ -169,7 +364,6 @@
         </div>
     </div>
 
-
     <!-- Bootstrap & Mermaid JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
@@ -181,12 +375,28 @@
     mermaid.initialize({
         startOnLoad: false,
         theme: 'dark',
-        themeVariables: {
-            darkMode: true
-        }
+        themeVariables: { darkMode: true }
     });
 
     let mermaidRendered = false;
+
+    // ---------- Global Helper Functions ----------
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    const toNumber = (v) => {
+      if (typeof v === 'number') return v;
+      if (typeof v === 'string') return Number(v.replace(/,/g, '')) || 0;
+      return 0;
+    };
+
+    const nf = (v) => (toNumber(v)).toLocaleString();
 
     // ---------- Analysis Dashboard Rendering ----------
     let analysisCharts = [];
@@ -203,13 +413,6 @@
       slate: '#6c757d'
     };
 
-    const toNumber = (v) => {
-      if (typeof v === 'number') return v;
-      if (typeof v === 'string') return Number(v.replace(/,/g, '')) || 0;
-      return 0;
-    };
-    const nf = (v) => (toNumber(v)).toLocaleString();
-
     function destroyAnalysisCharts() {
       analysisCharts.forEach(c => { try { c.destroy(); } catch (e) {} });
       analysisCharts = [];
@@ -220,20 +423,12 @@
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: {
-            labels: { color: chartColors.text }
-          },
+          legend: { labels: { color: chartColors.text } },
           tooltip: { mode: 'index', intersect: false }
         },
         scales: {
-          x: {
-            ticks: { color: chartColors.text },
-            grid: { color: chartColors.grid }
-          },
-          y: {
-            ticks: { color: chartColors.text },
-            grid: { color: chartColors.grid }
-          }
+          x: { ticks: { color: chartColors.text }, grid: { color: chartColors.grid } },
+          y: { ticks: { color: chartColors.text }, grid: { color: chartColors.grid } }
         }
       };
     }
@@ -255,12 +450,7 @@
     }
 
     function iconClass(name) {
-      const m = {
-        database: 'bi-database',
-        table: 'bi-table',
-        search: 'bi-search',
-        'exclamation-triangle': 'bi-exclamation-triangle'
-      };
+      const m = { database: 'bi-database', table: 'bi-table', search: 'bi-search', 'exclamation-triangle': 'bi-exclamation-triangle' };
       return m[name] || 'bi-circle';
     }
 
@@ -302,7 +492,6 @@
       const recs = (viz.recommendations && Array.isArray(viz.recommendations.priority_matrix)) ? viz.recommendations.priority_matrix : [];
       const implOrder = (viz.recommendations && Array.isArray(viz.recommendations.implementation_order)) ? viz.recommendations.implementation_order : [];
 
-      // Derive optional CTE usage from raw report if available
       const ctePct = raw?.query_patterns?.cte_usage_percent ?? null;
 
       // Build layout
@@ -441,6 +630,7 @@
         const labels = colLabels;
         const values = colValues.map(toNumber);
         const ctx = document.getElementById('colDistChart');
+        if (!ctx) return;
         const chart = new Chart(ctx, {
           type: 'doughnut',
           data: {
@@ -468,8 +658,9 @@
       (function renderHVQ() {
         const labels = topQueries.map(d => d.id || '—');
         const values = topQueries.map(d => toNumber(d.executions));
-        const ctx = document.getElementById('hvqChart').getContext('2d');
-        const chart = new Chart(ctx, {
+        const ctx = document.getElementById('hvqChart');
+        if (!ctx) return;
+        const chart = new Chart(ctx.getContext('2d'), {
           type: 'bar',
           data: {
             labels,
@@ -479,10 +670,7 @@
               backgroundColor: coloredBars(chartColors.primary, values.length)
             }]
           },
-          options: {
-            ...baseChartOptions(),
-            indexAxis: 'y'
-          }
+          options: { ...baseChartOptions(), indexAxis: 'y' }
         });
         analysisCharts.push(chart);
       })();
@@ -490,16 +678,17 @@
       // Join patterns bar
       (function renderJoin() {
         const labels = joinLabels;
-        const values = joinValues.map(toNumber);
-        const ctx = document.getElementById('joinChart').getContext('2d');
-        const chart = new Chart(ctx, {
+        const theValues = joinValues.map(toNumber);
+        const ctx = document.getElementById('joinChart');
+        if (!ctx) return;
+        const chart = new Chart(ctx.getContext('2d'), {
           type: 'bar',
           data: {
             labels,
             datasets: [{
               label: 'Count',
-              data: values,
-              backgroundColor: coloredBars(chartColors.purple, values.length)
+              data: theValues,
+              backgroundColor: coloredBars(chartColors.purple, theValues.length)
             }]
           },
           options: baseChartOptions()
@@ -511,8 +700,9 @@
       (function renderAgg() {
         const labels = aggLabels;
         const values = aggValues.map(toNumber);
-        const ctx = document.getElementById('aggChart').getContext('2d');
-        const chart = new Chart(ctx, {
+        const ctx = document.getElementById('aggChart');
+        if (!ctx) return;
+        const chart = new Chart(ctx.getContext('2d'), {
           type: 'bar',
           data: {
             labels,
@@ -527,23 +717,16 @@
         analysisCharts.push(chart);
       })();
 
-      // CTE usage donut (if available)
+      // CTE usage donut
       (function renderCTE() {
         const pct = ctePct;
         const ctx = document.getElementById('cteChart');
+        if (!ctx) return;
         if (pct === null || pct === undefined || isNaN(Number(pct))) {
-          // Render an empty chart with "No data"
           const chart = new Chart(ctx, {
             type: 'doughnut',
-            data: {
-              labels: ['No data'],
-              datasets: [{ data: [1], backgroundColor: [chartColors.slate], borderColor: '#00000000' }]
-            },
-            options: {
-              responsive: true,
-              maintainAspectRatio: false,
-              plugins: { legend: { display: false } }
-            }
+            data: { labels: ['No data'], datasets: [{ data: [1], backgroundColor: ['#6c757d'], borderColor: '#00000000' }] },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
           });
           analysisCharts.push(chart);
           return;
@@ -554,7 +737,7 @@
             labels: ['CTE used', 'No CTE'],
             datasets: [{
               data: [Number(pct), Math.max(0, 100 - Number(pct))],
-              backgroundColor: [chartColors.success, chartColors.slate],
+              backgroundColor: ['#198754', '#6c757d'],
               borderColor: '#00000000'
             }]
           },
@@ -576,20 +759,17 @@
         const values = mvs.map(mv => toNumber(mv.executions));
         const colors = mvs.map(mv => {
           const s = String(mv.savings || '').toLowerCase();
-          if (s.includes('high')) return chartColors.success;
-          if (s.includes('medium')) return chartColors.warning;
-          return chartColors.slate;
+          if (s.includes('high')) return '#198754';
+          if (s.includes('medium')) return '#ffc107';
+          return '#6c757d';
         });
-        const ctx = document.getElementById('mvChart').getContext('2d');
-        const chart = new Chart(ctx, {
+        const ctx = document.getElementById('mvChart');
+        if (!ctx) return;
+        const chart = new Chart(ctx.getContext('2d'), {
           type: 'bar',
           data: {
             labels,
-            datasets: [{
-              label: 'Total Executions',
-              data: values,
-              backgroundColor: colors
-            }]
+            datasets: [{ label: 'Total Executions', data: values, backgroundColor: colors }]
           },
           options: baseChartOptions()
         });
@@ -599,6 +779,7 @@
       // Recommendations
       (function renderRecs() {
         const recsDiv = document.getElementById('recsList');
+        if (!recsDiv) return;
         if (!recs.length) {
           recsDiv.innerHTML = `<div class="text-muted">No recommendations.</div>`;
           return;
@@ -620,22 +801,30 @@
         recsDiv.innerHTML = recs.map(r => `
           <div class="border rounded p-3 mb-2">
             <div class="d-flex justify-content-between align-items-center mb-1">
-              <div class="fw-semibold">${r.name || 'Recommendation'}</div>
+              <div class="fw-semibold">${escapeHtml(r.name || 'Recommendation')}</div>
               <div class="d-flex gap-2">
-                <span class="badge ${prBadge(r.priority)}">${r.priority || ''}</span>
-                ${r.effort ? `<span class="badge ${effortBadge(r.effort)}">Effort: ${r.effort}</span>` : ''}
+                <span class="badge ${prBadge(r.priority)}">${escapeHtml(r.priority || '')}</span>
+                ${r.effort ? `<span class="badge ${effortBadge(r.effort)}">Effort: ${escapeHtml(r.effort)}</span>` : ''}
               </div>
             </div>
-            ${r.description ? `<div class="text-muted mb-2">${r.description}</div>` : ''}
-            ${r.improvement ? `<div class="small text-success"><i class="bi bi-graph-up-arrow"></i> ${r.improvement}</div>` : ''}
+            ${r.description ? `<div class="text-muted mb-2">${escapeHtml(r.description)}</div>` : ''}
+            ${r.improvement ? `<div class="small text-success"><i class="bi bi-graph-up-arrow"></i> ${escapeHtml(r.improvement)}</div>` : ''}
           </div>
         `).join('');
       })();
 
       // Implementation order
       (function renderImplOrder() {
-        const list = document.getElementById('priorityList');
-        list.innerHTML = implOrder.map(item => `<li class="mb-1">${item}</li>`).join('');
+          const list = document.getElementById('priorityList');
+          if (!list) return;
+          if (!implOrder || implOrder.length === 0) {
+            list.innerHTML = '<li class="text-muted">No implementation order available.</li>';
+            return;
+          }
+          const cleanItems = implOrder.map(item => {
+            return String(item).replace(/^\d+[\.\)]\s*/, '');
+          });
+          list.innerHTML = cleanItems.map(item => `<li class="mb-1">${escapeHtml(item)}</li>`).join('');
       })();
 
       // Raw JSON viewer
@@ -648,7 +837,349 @@
         }
       }
     }
-    // ---------- End Analysis Dashboard Rendering ----------
+
+    // ---------- Schema Overview Rendering ----------
+    function renderSchemaOverview(schemaOverview, rawReport) {
+      // DEBUG: Check what data we're receiving
+      console.log('=== SCHEMA OVERVIEW DEBUG ===');
+      console.log('Full schemaOverview:', schemaOverview);
+      console.log('query_coverage:', schemaOverview?.query_coverage);
+      console.log('table_usage:', schemaOverview?.query_coverage?.table_usage);
+      console.log('============================');
+      if (!schemaOverview || typeof schemaOverview !== 'object') {
+        const tablesList = document.getElementById('schema-tables-list');
+        if (tablesList) {
+          tablesList.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No schema data available</td></tr>';
+        }
+        return;
+      }
+
+      const tables = schemaOverview.tables || [];
+      const indexCoverage = schemaOverview.index_coverage || {};
+
+      // Get additional data from raw_report
+      const dbProfile = rawReport?.database_profile || {};
+      const colTypeDist = dbProfile.column_distribution || {};
+      const schemaInsights = rawReport?.schema_insights || {};
+
+      // Calculate coverage percentage OUTSIDE the if block so it's accessible everywhere
+      const coveragePct = toNumber(indexCoverage.coverage_percent || 0);
+      const coverageClass = coveragePct >= 70 ? 'success' : (coveragePct >= 30 ? 'warning' : 'danger');
+
+      // Update table count badge
+      const tableCountEl = document.getElementById('schema-table-count');
+      if (tableCountEl) tableCountEl.textContent = tables.length;
+
+      // Render tables list
+      const tablesList = document.getElementById('schema-tables-list');
+      if (tablesList) {
+        if (tables.length > 0) {
+          tablesList.innerHTML = tables.map(t => `
+            <tr>
+              <td><code class="inline">${escapeHtml(t.name || 'Unknown')}</code></td>
+              <td class="text-end">${nf(t.column_count || 0)}</td>
+              <td class="text-end">${nf(t.estimated_rows || 0)}</td>
+              <td class="text-center">
+                ${t.has_primary_key
+                  ? '<i class="bi bi-check-circle-fill text-success" title="Has Primary Key"></i>'
+                  : '<i class="bi bi-x-circle text-danger" title="No Primary Key"></i>'}
+              </td>
+            </tr>
+          `).join('');
+        } else {
+          tablesList.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No tables found</td></tr>';
+        }
+      }
+
+      // Render data types distribution chart
+      const dtLabels = Object.keys(colTypeDist);
+      const dtValues = Object.values(colTypeDist).map(toNumber);
+      const dtCtx = document.getElementById('dataTypesChart');
+
+      if (dtCtx) {
+        const existingChart = Chart.getChart(dtCtx);
+        if (existingChart) existingChart.destroy();
+
+        if (dtLabels.length > 0) {
+          const dtChart = new Chart(dtCtx, {
+            type: 'doughnut',
+            data: {
+              labels: dtLabels,
+              datasets: [{
+                data: dtValues,
+                backgroundColor: coloredBars(chartColors.success, dtLabels.length),
+                borderColor: '#00000000'
+              }]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: {
+                  position: 'right',
+                  labels: { color: chartColors.text, font: { size: 11 } }
+                },
+                tooltip: {
+                  callbacks: {
+                    label: (i) => {
+                      const total = dtValues.reduce((a,b) => a+b, 0);
+                      const pct = total > 0 ? ((i.raw/total)*100).toFixed(1) : 0;
+                      return `${i.label}: ${nf(i.raw)} columns (${pct}%)`;
+                    }
+                  }
+                }
+              }
+            }
+          });
+          analysisCharts.push(dtChart);
+        } else {
+          dtCtx.parentElement.innerHTML = '<div class="text-muted text-center p-3">No data type information available</div>';
+        }
+      }
+
+      // Render index coverage
+      const indexInfo = document.getElementById('index-coverage-info');
+      if (indexInfo) {
+        indexInfo.innerHTML = `
+          <div class="row g-3 mb-3">
+            <div class="col-4">
+              <div class="text-muted small">Indexed Tables</div>
+              <div class="fs-4">${indexCoverage.indexed_tables || 0} / ${tables.length}</div>
+            </div>
+            <div class="col-4">
+              <div class="text-muted small">Total Indexes</div>
+              <div class="fs-4">${indexCoverage.total_indexes || 0}</div>
+            </div>
+            <div class="col-4">
+              <div class="text-muted small">Coverage</div>
+              <div class="fs-4">
+                <span class="badge bg-${coverageClass}">${coveragePct.toFixed(1)}%</span>
+              </div>
+            </div>
+          </div>
+          ${indexCoverage.recommendations ? `
+            <div class="alert alert-${coverageClass === 'success' ? 'info' : 'warning'} mb-0">
+              <i class="bi bi-lightbulb"></i> ${escapeHtml(indexCoverage.recommendations)}
+            </div>
+          ` : ''}
+        `;
+      }
+
+      // Render data quality metrics
+      const qualityInfo = document.getElementById('data-quality-info');
+      if (qualityInfo) {
+        const totalTables = tables.length;
+        const tablesNoPK = tables.filter(t => !t.has_primary_key).length;
+        const totalColumns = schemaInsights.total_columns || tables.reduce((sum, t) => sum + (t.column_count || 0), 0);
+
+        const qualityIssues = [];
+        if (tablesNoPK > 0) {
+          qualityIssues.push(`${tablesNoPK} table(s) without primary keys`);
+        }
+        if (coveragePct < 50) {  // Now coveragePct is in scope!
+          qualityIssues.push('Low index coverage may impact query performance');
+        }
+
+        qualityInfo.innerHTML = `
+          <div class="row g-3 mb-3">
+            <div class="col-4">
+              <div class="text-muted small">Total Columns</div>
+              <div class="fs-5">${nf(totalColumns)}</div>
+            </div>
+            <div class="col-4">
+              <div class="text-muted small">Tables w/o PK</div>
+              <div class="fs-5 ${tablesNoPK > 0 ? 'text-warning' : 'text-success'}">${tablesNoPK}</div>
+            </div>
+            <div class="col-4">
+              <div class="text-muted small">Data Types</div>
+              <div class="fs-5">${dtLabels.length}</div>
+            </div>
+          </div>
+          ${qualityIssues.length > 0 ? `
+            <div class="alert alert-warning mb-0">
+              <strong><i class="bi bi-exclamation-triangle"></i> Quality Issues:</strong>
+              <ul class="mb-0 mt-2">
+                ${qualityIssues.map(issue => `<li class="small">${escapeHtml(issue)}</li>`).join('')}
+              </ul>
+            </div>
+          ` : '<div class="text-success small"><i class="bi bi-check-circle"></i> No major data quality issues detected</div>'}
+        `;
+      }
+
+      // Render table usage chart
+    const tableUsageCtx = document.getElementById('tableUsageChart');
+    if (tableUsageCtx) {
+      const existingChart = Chart.getChart(tableUsageCtx);
+      if (existingChart) existingChart.destroy();
+
+      // Get query_coverage data
+      const queryCoverage = schemaOverview?.query_coverage || {};
+      const tableUsage = queryCoverage.table_usage || {};
+
+      console.log('🔍 Table Usage Debug:', {
+        queryCoverage: queryCoverage,
+        tableUsage: tableUsage,
+        keys: Object.keys(tableUsage),
+        values: Object.values(tableUsage)
+      });
+
+      // Extract labels and values
+      let usageLabels = Object.keys(tableUsage);
+      let usageValues = Object.values(tableUsage).map(toNumber);
+
+      // Check if we have valid data
+      const hasValidData = usageLabels.length > 0 && usageValues.some(v => v > 0);
+
+      if (!hasValidData) {
+        // Fallback: Use estimated rows
+        console.log('⚠️ No query usage data, falling back to estimated rows');
+        usageLabels = tables.map(t => t.name || 'Unknown');
+        usageValues = tables.map(t => t.estimated_rows || 0);
+
+        if (usageLabels.length > 0 && usageValues.some(v => v > 0)) {
+          const fallbackChart = new Chart(tableUsageCtx, {
+            type: 'bar',
+            data: {
+              labels: usageLabels,
+              datasets: [{
+                label: 'Estimated Rows (No Query Data)',
+                data: usageValues,
+                backgroundColor: coloredBars(chartColors.slate, usageLabels.length)
+              }]
+            },
+            options: {
+              ...baseChartOptions(),
+              indexAxis: 'y',
+              plugins: {
+                ...baseChartOptions().plugins,
+                tooltip: {
+                  callbacks: {
+                    label: (ctx) => `Rows: ${nf(ctx.raw)}`
+                  }
+                }
+              }
+            }
+          });
+          analysisCharts.push(fallbackChart);
+        } else {
+          tableUsageCtx.parentElement.innerHTML = '<div class="text-muted text-center p-3">No table usage data available</div>';
+        }
+      } else {
+        // SUCCESS: Use query coverage data
+        console.log('✅ Using query coverage data:', usageLabels, usageValues);
+
+        const usageChart = new Chart(tableUsageCtx, {
+          type: 'bar',
+          data: {
+            labels: usageLabels,
+            datasets: [{
+              label: 'Query Executions',
+              data: usageValues,
+              backgroundColor: coloredBars(chartColors.primary, usageLabels.length)
+            }]
+          },
+          options: {
+            ...baseChartOptions(),
+            indexAxis: 'y',
+            plugins: {
+              ...baseChartOptions().plugins,
+              tooltip: {
+                callbacks: {
+                  label: (ctx) => `Executions: ${nf(ctx.raw)}`
+                }
+              }
+            }
+          }
+        });
+        analysisCharts.push(usageChart);
+      }
+    }
+
+      // Render partitioning candidates
+      const partCandidates = document.getElementById('partitioning-candidates');
+      if (partCandidates) {
+        const partitioningCandidates = schemaInsights.partitioning_candidates || [];
+
+        if (partitioningCandidates && partitioningCandidates.length > 0) {
+          partCandidates.innerHTML = `
+            <div class="alert alert-info mb-3">
+              <i class="bi bi-info-circle"></i> Identified ${partitioningCandidates.length} column(s) suitable for partitioning
+            </div>
+            <div class="list-group">
+              ${partitioningCandidates.map(col => `
+                <div class="list-group-item">
+                  <div class="d-flex justify-content-between align-items-center">
+                    <code class="inline">${escapeHtml(col)}</code>
+                    <span class="badge bg-info">Date-based Partitioning</span>
+                  </div>
+                  <small class="text-muted">Recommended for time-series queries and data archival</small>
+                </div>
+              `).join('')}
+            </div>
+          `;
+        } else {
+          const hasDateColumns = tables.some(t => t.name &&
+            (t.name.toLowerCase().includes('date') || t.name.toLowerCase().includes('time')));
+
+          if (hasDateColumns || tables.length > 0) {
+            partCandidates.innerHTML = `
+              <div class="alert alert-secondary mb-0">
+                <i class="bi bi-lightbulb"></i>
+                <strong>Partitioning Suggestions:</strong>
+                <ul class="mb-0 mt-2">
+                  <li class="small">Consider partitioning large tables by date/time columns</li>
+                  <li class="small">Use RANGE partitioning for historical data analysis</li>
+                  <li class="small">LIST partitioning may be beneficial for categorical data</li>
+                </ul>
+              </div>
+            `;
+          } else {
+            partCandidates.innerHTML = '<div class="text-muted">No specific partitioning candidates identified</div>';
+          }
+        }
+      }
+    }
+    // ---------- End Schema Overview Rendering ----------
+
+    // ---------- Logs Rendering ----------
+    function levelClass(level) {
+      const L = String(level || '').toUpperCase();
+      if (L === 'WARN' || L === 'WARNING') return 'warning';
+      if (['ERROR', 'FAILED', 'FAIL', 'CRITICAL'].includes(L)) return 'error';
+      if (L === 'SUCCESS' || L === 'OK') return 'success';
+      return 'info';
+    }
+
+    function levelLabel(level) {
+      const L = String(level || '').toUpperCase();
+      if (L === 'WARN') return 'WARNING';
+      if (['ERROR', 'FAILED', 'FAIL', 'CRITICAL', 'SUCCESS', 'OK', 'INFO', 'DEBUG', 'TRACE', 'WARNING'].includes(L)) return L;
+      return level || 'LOG';
+    }
+
+    function renderLogs(logs, formatDateTime) {
+      const container = document.getElementById('log-content');
+      if (!container) return;
+      if (!Array.isArray(logs) || logs.length === 0) {
+        container.innerHTML = '<div class="text-muted">No logs available.</div>';
+        return;
+      }
+      const rows = logs.map(l => {
+        const cls = levelClass(l.level);
+        const label = levelLabel(l.level);
+        const time = escapeHtml(formatDateTime(l.timestamp));
+        const msg = escapeHtml(l.message || '');
+        return `
+          <div class="log-row ${cls}">
+            <span class="log-time">${time}</span>
+            <span class="log-level-badge ${cls}">${label}</span>
+            <span class="log-msg">${msg}</span>
+          </div>
+        `;
+      }).join('');
+      container.innerHTML = rows;
+    }
+    // ---------- End Logs Rendering ----------
 
     document.addEventListener('DOMContentLoaded', () => {
         const taskTableBody = document.getElementById('task-table-body');
@@ -663,9 +1194,7 @@
         let currentFilter = '';
 
         const formatDateTime = (isoString) => {
-            if (!isoString) {
-                return 'N/A';
-            }
+            if (!isoString) return 'N/A';
             return new Date(isoString).toLocaleString();
         };
 
@@ -821,22 +1350,39 @@
             const resultTab = new bootstrap.Tab(document.getElementById('result-tab'));
             resultTab.show();
 
-            // Fetch Analysis Report and render charts
+            // Fetch Analysis Report and render charts AND schema
             try {
                 const analysisRes = await fetch(`/task/${taskId}/analysis`);
                 const analysisData = await analysisRes.json();
+
+                // Render analysis charts
                 renderAnalysis(analysisData);
+
+                // Render schema overview from the same data
+                if (analysisData.schema_overview) {
+                    renderSchemaOverview(analysisData.schema_overview, analysisData.raw_report);
+                }
             } catch (e) {
+                console.error('Error loading analysis:', e);
                 const root = document.getElementById('analysis-root');
-                if (root) root.innerHTML = `<div class="alert alert-danger">Error loading analysis report.</div>`;
+                if (root) root.innerHTML = `<div class="alert alert-danger">Error loading analysis report: ${e.message}</div>`;
+
+                const tablesList = document.getElementById('schema-tables-list');
+                if (tablesList) {
+                    tablesList.innerHTML = '<tr><td colspan="4" class="text-center text-danger">Error loading schema data</td></tr>';
+                }
             }
 
             // Fetch logs
             try {
                 const logRes = await fetch(`/task/${taskId}/log`);
                 const logs = await logRes.json();
-                document.getElementById('log-content').textContent = logs.map(l => `${formatDateTime(l.timestamp)} [${l.level}] ${l.message}`).join('\n');
-            } catch (e) { document.getElementById('log-content').textContent = 'Error loading logs.'; }
+                renderLogs(logs, formatDateTime);
+            } catch (e) {
+                console.error('Error loading logs:', e);
+                const logEl = document.getElementById('log-content');
+                if (logEl) logEl.innerHTML = '<div class="alert alert-danger">Error loading logs.</div>';
+            }
 
             // Fetch results and diff only if DONE
             if (status === 'DONE') {
@@ -854,14 +1400,14 @@
                     document.getElementById('result-queries').textContent = JSON.stringify(resultData.queries, null, 2);
 
                 } catch (e) {
-                     errorDiv.textContent = `Error loading results: ${e.message}`;
-                     errorDiv.classList.remove('d-none');
+                    errorDiv.textContent = `Error loading results: ${e.message}`;
+                    errorDiv.classList.remove('d-none');
                 }
             } else {
-                 document.getElementById('result-ddl').textContent = 'Task is not yet DONE.';
-                 document.getElementById('result-migrations').textContent = '';
-                 document.getElementById('result-queries').textContent = '';
-                 document.getElementById('diff-content').textContent = 'Task is not yet DONE.';
+                document.getElementById('result-ddl').textContent = 'Task is not yet DONE.';
+                document.getElementById('result-migrations').textContent = '';
+                document.getElementById('result-queries').textContent = '';
+                document.getElementById('diff-content').textContent = 'Task is not yet DONE.';
             }
 
             spinner.classList.add('d-none');
@@ -880,11 +1426,64 @@
             const coll = bootstrap.Collapse.getInstance(collapse);
             if (coll) coll.hide();
           }
+          const logEl = document.getElementById('log-content');
+          if (logEl) logEl.innerHTML = '';
+
+          // FIX: Clear Schema Overview tab
+          const tablesList = document.getElementById('schema-tables-list');
+          if (tablesList) {
+            tablesList.innerHTML = '<tr><td colspan="4" class="text-center text-muted">Loading...</td></tr>';
+          }
+
+          const tableCountEl = document.getElementById('schema-table-count');
+          if (tableCountEl) tableCountEl.textContent = '0';
+
+          const indexInfo = document.getElementById('index-coverage-info');
+          if (indexInfo) {
+            indexInfo.innerHTML = `
+              <div class="text-center text-muted">
+                <div class="spinner-border spinner-border-sm" role="status"></div>
+                <div class="small mt-2">Loading index data...</div>
+              </div>
+            `;
+          }
+
+          const qualityInfo = document.getElementById('data-quality-info');
+          if (qualityInfo) {
+            qualityInfo.innerHTML = `
+              <div class="text-center text-muted">
+                <div class="spinner-border spinner-border-sm" role="status"></div>
+                <div class="small mt-2">Analyzing data quality...</div>
+              </div>
+            `;
+          }
+
+          const partCandidates = document.getElementById('partitioning-candidates');
+          if (partCandidates) {
+            partCandidates.innerHTML = `
+              <div class="text-center text-muted">
+                <div class="spinner-border spinner-border-sm" role="status"></div>
+                <div class="small mt-2">Identifying partitioning opportunities...</div>
+              </div>
+            `;
+          }
+
+          // Clear charts
+          const dataTypesCtx = document.getElementById('dataTypesChart');
+          if (dataTypesCtx) {
+            const existingChart = Chart.getChart(dataTypesCtx);
+            if (existingChart) existingChart.destroy();
+          }
+
+          const tableUsageCtx = document.getElementById('tableUsageChart');
+          if (tableUsageCtx) {
+            const existingChart = Chart.getChart(tableUsageCtx);
+            if (existingChart) existingChart.destroy();
+          }
         });
 
         const statsModal = document.getElementById('statsModal');
 
-        // Use 'show.bs.modal' to load stats data
         statsModal.addEventListener('show.bs.modal', async () => {
             try {
                 const response = await fetch('/tasks');
@@ -898,7 +1497,6 @@
             }
         });
 
-        // Use 'shown.bs.modal' to render Mermaid after modal is fully visible
         statsModal.addEventListener('shown.bs.modal', async () => {
             if (!mermaidRendered) {
                 const element = document.getElementById('mermaid-diagram');
@@ -914,13 +1512,8 @@ stateDiagram-v2
                 `;
 
                 try {
-                    // Clear any existing content
                     element.innerHTML = '';
-
-                    // Generate unique ID for this diagram
                     const diagramId = 'mermaid-' + Date.now();
-
-                    // Use mermaid.render to get the SVG
                     const { svg } = await mermaid.render(diagramId, mermaidCode);
                     element.innerHTML = svg;
                     mermaidRendered = true;
@@ -931,14 +1524,10 @@ stateDiagram-v2
             }
         });
 
-        // Reset mermaid flag when modal is hidden so it can be re-rendered if needed
         statsModal.addEventListener('hidden.bs.modal', () => {
             mermaidRendered = false;
-            // Also clear the content to ensure it's fresh on next open
             const element = document.getElementById('mermaid-diagram');
-            if (element) {
-                element.innerHTML = '';
-            }
+            if (element) element.innerHTML = '';
         });
 
         // Initial load

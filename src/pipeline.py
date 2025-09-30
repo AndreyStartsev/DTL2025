@@ -2,21 +2,15 @@
 import json
 from time import time
 from dotenv import load_dotenv, find_dotenv
-from langchain_community.vectorstores.aperturedb import BATCHSIZE
 from loguru import logger
 from sqlalchemy.orm import Session
 
 from src.prompts import PROMPT_STEP1, PROMPT_STEP2
 from src.analyzer import DataAnalyzer
 from src.database import SessionLocal
-from src import crud, schemas
-from src.report_creator import create_optimization_report
+from src import crud, models
+from src.report_creator import create_optimization_report, create_insights_report
 from src.llm_connector import get_llm, llm_call_with_so_and_fallback
-from .models import (
-    NewTaskRequest,
-    DBOptimizationResponse,
-    RewrittenQueries,
-)
 
 # Load environment variables once
 load_dotenv(find_dotenv())
@@ -41,7 +35,7 @@ def db_log_sink(msg):
 logger.add(db_log_sink, format="{message}", level="INFO")
 
 
-def run_analysis_pipeline(task_id: str, request_data: NewTaskRequest):
+def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
     """
     The main long-running task that performs the database analysis and optimization,
     saving intermediate results to the database at each step.
@@ -69,30 +63,40 @@ def run_analysis_pipeline(task_id: str, request_data: NewTaskRequest):
         log.info(f"[{task_id}] Performing initial data analysis...")
         start_time = time()
         analyzer = DataAnalyzer()
+        start_task_time = time()
         analysis_result = analyzer.analyze_input_data(input_dict)
-        db_analysis_report_str = create_optimization_report(analysis_result)
-        log.success(f"[{task_id}] Data analysis completed in {time() - start_time:.2f}s")
+        log.info(f"Data analysis was performed in {time() - start_task_time:.2f}s")
+        start_task_time = time()
+        db_analysis_report = create_optimization_report(analysis_result)
+        log.info(f"Optimization report was created in {time() - start_task_time:.2f}s")
+
+        # Additionally create a human-readable insights report and add as "schema_overview"
+        db_insights_report_dict = create_insights_report(input_dict.get('ddl', []), input_dict.get('queries', []))
+        db_analysis_report['schema_overview'] = db_insights_report_dict
+        log.success(f"✅ [{task_id}] DB analysis completed in {time() - start_time:.2f}s")
 
         # Save analysis result to the DB
         try:
-            crud.update_task_with_analysis(db, task_id, db_analysis_report_str)
+            crud.update_task_with_analysis(db, task_id, db_analysis_report)
             log.info(f"[{task_id}] Saved analysis report to database.")
+
         except json.JSONDecodeError as e:
             log.warning(f"[{task_id}] Could not parse analysis report as JSON to save to DB: {e}")
             # As a fallback, save the raw string inside a dictionary
-            crud.update_task_with_analysis(db, task_id, {"raw_report": db_analysis_report_str})
+            crud.update_task_with_analysis(db, task_id, {"raw_report": db_analysis_report})
 
         # --- Step 2: Generate new DDL & Migrations ---
+        db_analysis_report.pop('schema_overview', None)
         prompt1 = PROMPT_STEP1.format(
-            db_analysis=db_analysis_report_str,
+            db_analysis=db_analysis_report,
             ddl=ddl_str,
             strategy=config.strategy
         )
 
         log.info(f"[{task_id}] Calling LLM ({config.model_id}) for DDL and migration optimization...")
         start_time = time()
-        opt_response = llm_call_with_so_and_fallback(llm, prompt1, DBOptimizationResponse)
-        log.success(f"[{task_id}] DDL/Migration generation completed in {time() - start_time:.2f}s")
+        opt_response = llm_call_with_so_and_fallback(llm, prompt1, models.DBOptimizationResponse)
+        log.success(f"✅ [{task_id}] DDL/Migration generation completed in {time() - start_time:.2f}s")
 
         # Save DDL and migration results to the DB
         crud.update_task_after_step1(db, task_id, opt_response.ddl, opt_response.migrations)
@@ -127,13 +131,13 @@ def run_analysis_pipeline(task_id: str, request_data: NewTaskRequest):
                     original_ddl=ddl_str,
                     new_ddl=opt_response.ddl
                 )
-                batch_response = llm_call_with_so_and_fallback(llm, batch_prompt, RewrittenQueries)
+                batch_response = llm_call_with_so_and_fallback(llm, batch_prompt, models.RewrittenQueries)
                 all_rewritten_queries.extend(batch_response.queries)
-            rewrite_response = RewrittenQueries(queries=all_rewritten_queries)
+            rewrite_response = models.RewrittenQueries(queries=all_rewritten_queries)
         else:
-            rewrite_response = llm_call_with_so_and_fallback(llm, prompt2, RewrittenQueries)
+            rewrite_response = llm_call_with_so_and_fallback(llm, prompt2, models.RewrittenQueries)
 
-        log.success(f"[{task_id}] Query rewriting completed in {time() - start_time:.2f}s")
+        log.success(f"✅ [{task_id}] Query rewriting completed in {time() - start_time:.2f}s")
 
         # FIX: Validate BEFORE saving to database
         if len(rewrite_response.queries) != len(queries_list):

@@ -5,6 +5,7 @@ from sqlalchemy.sql import func
 from pydantic import BaseModel, Field
 from typing import List, Optional
 import datetime
+
 from src.database import Base
 
 # Database Models
@@ -14,7 +15,7 @@ class Task(Base):
 
     id = Column(String, primary_key=True, index=True)
     status = Column(String, index=True)
-    submitted_at = Column(DateTime, default=datetime.datetime.utcnow)
+    submitted_at = Column(DateTime, default=datetime.datetime.now(datetime.UTC))
     completed_at = Column(DateTime, nullable=True)
 
     # Stores the original POST /new request body
@@ -53,11 +54,13 @@ class QueryStatement(BaseModel):
     queryid: str
     query: str
     runquantity: int
+    executiontime: int # in seconds
 
 class TaskConfig(BaseModel):
     strategy: str = Field("balanced", description="Optimization strategy: 'read_optimized', 'write_optimized', 'balanced', 'storage_optimized'")
     model_id: str = Field("meta-llama/llama-4-maverick", description="The model ID to use from OpenRouter")
-    context_length: Optional[int] = Field(None, description="Optional context length for the model")
+    context_length: Optional[int] = Field(10000, description="Optional context length for the model")
+    batch_size: Optional[int] = Field(15, description="Optional batch size for processing queries")
 
 class NewTaskRequest(BaseModel):
     url: str
@@ -82,7 +85,7 @@ class ResultResponse(BaseModel):
 class TaskSummary(BaseModel):
     taskid: str
     status: str
-    submitted_at: str
+    submitted_at: datetime.datetime
     completed_at: Optional[str] = None
 
 class LogEntryResponse(BaseModel):
@@ -100,8 +103,8 @@ class QueryDiffResponse(BaseModel):
 # Internal LLM Models
 
 class DBOptimizationResponse(BaseModel):
-    ddl: str = Field(..., description="A single string of semicolon-separated optimized DDL statements")
-    migrations: str = Field(..., description="A single string of semicolon-separated data migration scripts")
+    ddl: str = Field(..., description="The optimized DDL statements")
+    migrations: str = Field(..., description="The data migration scripts")
 
 class RewrittenQueries(BaseModel):
     queries: list[str] = Field(..., description="List of rewritten SQL queries")

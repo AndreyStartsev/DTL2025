@@ -1,8 +1,8 @@
 # app/crud.py
-from narwhals.stable.v1 import Datetime
 from sqlalchemy.orm import Session
-from . import models, schemas
 import datetime
+
+from src import models
 
 def get_task(db: Session, task_id: str):
     return db.query(models.Task).filter(models.Task.id == task_id).first()
@@ -13,7 +13,7 @@ def get_tasks(db: Session, skip: int = 0, limit: int = 20, status: str = None):
         query = query.filter(models.Task.status == status)
     return query.offset(skip).limit(limit).all()
 
-def create_task(db: Session, task_id: str, request_data: schemas.NewTaskRequest):
+def create_task(db: Session, task_id: str, request_data: models.NewTaskRequest):
     db_task = models.Task(
         id=task_id,
         status="RUNNING",

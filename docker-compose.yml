@@ -1,0 +1,85 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  # FastAPI Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: db_optimizer_app
+    ports:
+      - "80:8000"
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=sqlite:///./data/tasks.db
+      - SANDBOX_POSTGRES_HOST=postgres_sandbox
+      - SANDBOX_POSTGRES_PORT=5432
+      - SANDBOX_POSTGRES_USER=sandbox_user
+      - SANDBOX_POSTGRES_PASSWORD=sandbox_pass
+      - SANDBOX_POSTGRES_DB=sandbox_db
+    volumes:
+      - ./data:/app/data  # Persist SQLite database for task logs
+      - ./logs:/app/logs  # Persist application logs
+    depends_on:
+      postgres_sandbox:
+        condition: service_healthy
+    networks:
+      - db_optimizer_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # PostgreSQL Sandbox Database
+  postgres_sandbox:
+    image: postgres:15-alpine
+    container_name: postgres_sandbox_db
+    environment:
+      POSTGRES_USER: sandbox_user
+      POSTGRES_PASSWORD: sandbox_pass
+      POSTGRES_DB: sandbox_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_sandbox_data:/var/lib/postgresql/data
+    networks:
+      - db_optimizer_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sandbox_user -d sandbox_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Optional: pgAdmin for database management
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: db_optimizer_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@dboptimizer.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - postgres_sandbox
+    networks:
+      - db_optimizer_network
+    restart: unless-stopped
+
+networks:
+  db_optimizer_network:
+    driver: bridge
+
+volumes:
+  postgres_sandbox_data:
+    driver: local
+  pgadmin_data:
+    driver: local

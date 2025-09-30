@@ -148,6 +148,131 @@ class DDLParser:
                 type_counts[base_type] = type_counts.get(base_type, 0) + 1
         return type_counts
 
+    def get_schema_insights(self, tables: List[Table], queries: List[Dict] = None) -> Dict:
+        """
+        Generate comprehensive schema insights for the analysis report.
+
+        Args:
+            tables: List of parsed Table objects
+            queries: Optional list of query data for row estimation
+
+        Returns:
+            Dict with schema insights including tables, indexes, and coverage metrics
+        """
+        if not tables:
+            return {
+                "total_columns": 0,
+                "total_tables": 0,
+                "tables": [],
+                "index_coverage": {
+                    "indexed_tables": 0,
+                    "total_indexes": 0,
+                    "coverage_percent": 0,
+                    "recommendations": "No tables found in schema."
+                }
+            }
+
+        # Build table details
+        table_details = []
+        total_indexed = 0
+        total_indexes = 0
+
+        for table in tables:
+            # Extract primary key info from constraints
+            has_primary_key = self._has_primary_key(table)
+
+            # Count indexes (from table.indexes if available)
+            index_count = len(table.indexes) if table.indexes else 0
+            if index_count > 0 or has_primary_key:
+                total_indexed += 1
+                total_indexes += index_count + (1 if has_primary_key else 0)
+
+            # Estimate rows based on queries if available
+            estimated_rows = self._estimate_table_rows(table, queries) if queries else 0
+
+            table_details.append({
+                "name": f"{table.schema}.{table.name}" if table.schema else table.name,
+                "full_name": f"{table.catalog}.{table.schema}.{table.name}",
+                "column_count": len(table.columns),
+                "estimated_rows": estimated_rows,
+                "has_primary_key": has_primary_key,
+                "index_count": index_count
+            })
+
+        # Calculate coverage metrics
+        total_tables = len(tables)
+        coverage_percent = round((total_indexed / total_tables * 100), 1) if total_tables > 0 else 0
+
+        # Generate recommendations
+        recommendations = self._generate_index_recommendations(
+            total_tables, total_indexed, total_indexes
+        )
+
+        return {
+            "total_columns": sum(len(table.columns) for table in tables),
+            "total_tables": total_tables,
+            "tables": sorted(table_details, key=lambda x: x['column_count'], reverse=True),
+            "index_coverage": {
+                "indexed_tables": total_indexed,
+                "total_indexes": total_indexes,
+                "coverage_percent": coverage_percent,
+                "recommendations": recommendations
+            }
+        }
+
+    def _has_primary_key(self, table: Table) -> bool:
+        """Check if table has a primary key constraint."""
+        if not table.constraints:
+            return False
+
+        for constraint in table.constraints:
+            if 'PRIMARY KEY' in constraint.upper():
+                return True
+        return False
+
+    def _estimate_table_rows(self, table: Table, queries: List[Dict]) -> int:
+        """
+        Estimate table row count based on query execution data.
+        This is a simple heuristic - you can improve it with actual row counts.
+        """
+        if not queries:
+            return 0
+
+        # Look for queries that reference this table
+        table_name = table.name.lower()
+        total_executions = 0
+
+        for query_data in queries:
+            query = query_data.get('query', '').lower()
+            if f'from {table_name}' in query or f'join {table_name}' in query:
+                # Use runquantity as a proxy for activity
+                total_executions += query_data.get('runquantity', 0)
+
+        # Simple heuristic: higher query volume suggests more rows
+        # This is just an estimate - adjust the multiplier as needed
+        if total_executions > 10000:
+            return 1000000  # Large table
+        elif total_executions > 1000:
+            return 100000  # Medium table
+        elif total_executions > 100:
+            return 10000  # Small table
+        else:
+            return 1000  # Minimal table
+
+    def _generate_index_recommendations(self, total_tables: int, indexed_tables: int, total_indexes: int) -> str:
+        """Generate index coverage recommendations."""
+        if total_tables == 0:
+            return "No tables to analyze."
+
+        coverage = (indexed_tables / total_tables) * 100
+
+        if coverage < 30:
+            return f"⚠️ Low index coverage ({coverage:.0f}%). Consider adding indexes to frequently queried tables."
+        elif coverage < 70:
+            return f"💡 Moderate index coverage ({coverage:.0f}%). Review query patterns to identify additional indexing opportunities."
+        else:
+            return f"✅ Good index coverage ({coverage:.0f}%). Monitor query performance to maintain optimal indexing."
+
 
 # Пример использования
 if __name__ == "__main__":
@@ -169,3 +294,6 @@ if __name__ == "__main__":
         print(f"  {table.catalog}.{table.schema}.{table.name} ({len(table.columns)} columns)")
 
     print(f"\nStatistics: {json.dumps(stats, indent=2)}")
+
+    insights = parser.get_schema_insights(tables)
+    print(f"\nSchema Insights: {json.dumps(insights, indent=2)}")

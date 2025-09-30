@@ -7,4 +7,5 @@ pydantic
 langchain-openai
 python-dotenv
 sqlalchemy
+sqlparse
 jinja2

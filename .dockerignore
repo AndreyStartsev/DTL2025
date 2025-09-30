@@ -1,0 +1,8 @@
+.env
+db.sqlite3
+__pycache__
+backup/
+data/
+src/data
+src/logs
+.info
