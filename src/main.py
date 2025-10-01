@@ -211,12 +211,19 @@ def get_task_status(
 
     # Check for timeout
     if task.status == "RUNNING":
-        elapsed_time = datetime.datetime.now(datetime.UTC) - task.submitted_at
-        if elapsed_time > datetime.timedelta(minutes=TASK_TIMEOUT_MINUTES):
-            error_result = {"error": f"Task exceeded the {TASK_TIMEOUT_MINUTES}-minute time limit."}
-            crud.update_task_status(db, task_id, "FAILED", error_result)
-            logger.warning(f"Task {task_id} timed out after {TASK_TIMEOUT_MINUTES} minutes.")
-            return models.TaskStatusResponse(status="FAILED")
+        try:
+            # convert to aware datetime in UTC
+            submitted_at = task.submitted_at
+            if submitted_at.tzinfo is None:
+                submitted_at = submitted_at.replace(tzinfo=datetime.timezone.utc)
+            elapsed_time = datetime.datetime.now(datetime.UTC) - submitted_at
+            if elapsed_time > datetime.timedelta(minutes=TASK_TIMEOUT_MINUTES):
+                error_result = {"error": f"Task exceeded the {TASK_TIMEOUT_MINUTES}-minute time limit."}
+                crud.update_task_status(db, task_id, "FAILED", error_result)
+                logger.warning(f"Task {task_id} timed out after {TASK_TIMEOUT_MINUTES} minutes.")
+                return models.TaskStatusResponse(status="FAILED")
+        except Exception as e:
+            logger.error(f"Error checking timeout for task {task_id}: {e}")
 
     logger.info(f"Task ID {task_id} status: {task.status}")
     return models.TaskStatusResponse(status=task.status)

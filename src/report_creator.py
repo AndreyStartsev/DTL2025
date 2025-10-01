@@ -39,17 +39,23 @@ class OptimizationAnalyzer:
         overview = db_stats.get('overview', {})
         table_stats = db_stats.get('table_statistics', [])
 
-        main_table = table_stats[0] if table_stats else {}
+        # Calculate totals across all tables
+        total_tables = len(table_stats)
+        total_rows = sum(t.get('row_count', 0) for t in table_stats)
+        total_size_bytes = sum(t.get('size_bytes', 0) for t in table_stats)
 
         return {
             'database_type': overview.get('driver', 'unknown'),
-            'main_table': {
-                'name': main_table.get('table_name', ''),
-                'rows': f"{main_table.get('row_count', 0):,}",
-                'size_gb': round(main_table.get('size_bytes', 0) / (1024 ** 3), 2),
-                'columns': schema_stats.get('total_columns', 0)
-            },
-            'column_distribution': schema_stats.get('column_types_distribution', {})
+            'table_count': total_tables,
+            'total_rows': f"{total_rows:,}",
+            'total_size_gb': round(total_size_bytes / (1024 ** 3), 2),
+            'total_columns': schema_stats.get('total_columns', 0),
+            'column_distribution': schema_stats.get('column_types_distribution', {}),
+            'largest_table': {
+                'name': table_stats[0].get('table_name', '') if table_stats else '',
+                'rows': f"{table_stats[0].get('row_count', 0):,}" if table_stats else '0',
+                'size_gb': round(table_stats[0].get('size_bytes', 0) / (1024 ** 3), 2) if table_stats else 0
+            } if table_stats else None
         }
 
     def _identify_bottlenecks(self) -> List[Dict[str, Any]]:
@@ -238,14 +244,26 @@ def create_optimization_report(analysis_data: Dict) -> Dict[str, Any]:
     analyzer = OptimizationAnalyzer(analysis_data)
     summary = analyzer.create_compact_summary()
 
+    # Determine optimization potential based on actual database structure
+    db_profile = summary.database_profile
+    table_count = db_profile.get('table_count', 0)
+
+    if table_count == 1:
+        opt_potential = 'High - Single large table with heavy analytical workload'
+    elif table_count <= 5:
+        opt_potential = 'Medium - Few tables with focused workload'
+    else:
+        opt_potential = 'Moderate - Many small tables with distributed workload'
+
     return {
         'executive_summary': {
-            'database_size': summary.database_profile['main_table']['size_gb'],
-            'total_rows': summary.database_profile['main_table']['rows'],
+            'database_size': db_profile.get('total_size_gb', 0),
+            'total_tables': table_count,
+            'total_rows': db_profile.get('total_rows', '0'),
             'query_volume_per_day': sum(p.get('total_executions', 0) for p in summary.performance_bottlenecks if
                                         p.get('type') == 'high_volume_queries'),
             'critical_issues': len([b for b in summary.performance_bottlenecks if b.get('severity') == 'high']),
-            'optimization_potential': 'High - Single large table with heavy analytical workload'
+            'optimization_potential': opt_potential
         },
         'database_profile': summary.database_profile,
         'performance_bottlenecks': summary.performance_bottlenecks,
