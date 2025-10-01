@@ -1,0 +1,17 @@
+body {
+  margin: 0;
+  background: #0f172a; /* slate-900 */
+}
+redoc, .menu-content, .api-content {
+  --primary-color: #22c55e; /* emerald-500 */
+  --text-color: #e2e8f0;    /* slate-200 */
+}
+h1, h2, h3, h4, h5, h6, p, a, span, li {
+  color: var(--text-color) !important;
+}
+.menu-content {
+  background: #111827; /* gray-900 */
+}
+.api-content .http-verb {
+  border-radius: 6px;
+}
