@@ -111,17 +111,28 @@ def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
             new_ddl=opt_response.ddl
         )
 
-        # Handle large number of queries by batching
-        BATCH_SIZE = 10  # Define a batch size for processing queries TODO: Make configurable
-        queries_list = input_dict.get('queries', [])  # FIX: Use dict version consistently
+        BATCH_SIZE = 10  # Define a batch size for processing queries
+        queries_list = input_dict.get('queries', [])
+        total_queries = len(queries_list)
 
-        if len(queries_list) > BATCH_SIZE:
+        if total_queries > BATCH_SIZE:
             log.info(
-                f"[{task_id}] Large number of queries detected ({len(queries_list)}). Processing in batches of {BATCH_SIZE}.")
+                f"[{task_id}] Large number of queries detected ({total_queries}). "
+                f"Processing in batches of {BATCH_SIZE}."
+            )
             all_rewritten_queries = []
-            for i in range(0, len(queries_list), BATCH_SIZE):
-                log.info(f"[{task_id}] Processing queries {i + 1} to {min(i + BATCH_SIZE, len(queries_list))}...")
-                batch_queries = queries_list[i:i + BATCH_SIZE]  # FIX: Use queries_list
+
+            for i in range(0, total_queries, BATCH_SIZE):
+                batch_end = min(i + BATCH_SIZE, total_queries)
+                batch_num = (i // BATCH_SIZE) + 1
+                batch_size = batch_end - i
+
+                log.info(
+                    f"[{task_id}] Processing batch {batch_num}: "
+                    f"queries {i + 1} to {batch_end} ({batch_size} queries)..."
+                )
+
+                batch_queries = queries_list[i:batch_end]
                 batch_queries_str = "\n---\n".join([
                     f"-- Query ID: {q['queryid']}\n-- Runs: {q['runquantity']}\n{q['query']};"
                     for q in batch_queries
@@ -130,20 +141,45 @@ def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
                     original_queries=batch_queries_str,
                     original_ddl=ddl_str,
                     new_ddl=opt_response.ddl
-                )
+                ) + f"\n\n**IMPORTANT**: You must return EXACTLY {batch_size} rewritten queries, one for each query in this batch."
+
                 batch_response = llm_call_with_so_and_fallback(llm, batch_prompt, models.RewrittenQueries)
+
+                # VALIDATION: Check batch response count
+                if len(batch_response.queries) != batch_size:
+                    error_msg = (
+                        f"Batch {batch_num} failed: LLM returned {len(batch_response.queries)} "
+                        f"rewritten queries but expected {batch_size} queries."
+                    )
+                    log.error(f"[{task_id}] {error_msg}")
+                    raise ValueError(error_msg)
+
                 all_rewritten_queries.extend(batch_response.queries)
+
             rewrite_response = models.RewrittenQueries(queries=all_rewritten_queries)
         else:
             rewrite_response = llm_call_with_so_and_fallback(llm, prompt2, models.RewrittenQueries)
 
         log.success(f"✅ [{task_id}] Query rewriting completed in {time() - start_time:.2f}s")
 
-        # FIX: Validate BEFORE saving to database
-        if len(rewrite_response.queries) != len(queries_list):
+        # FINAL VALIDATION: Ensure total count matches
+        if len(rewrite_response.queries) != total_queries:
+            # Enhanced debug logging
+            log.error(
+                f"[{task_id}] Query count mismatch: "
+                f"Expected {total_queries}, Got {len(rewrite_response.queries)}"
+            )
+            for i in range(max(len(queries_list), len(rewrite_response.queries))):
+                orig_text = queries_list[i]['query'][:50] + "..." if i < len(queries_list) else "MISSING"
+                rewrit_text = rewrite_response.queries[i][:50] + "..." if i < len(
+                    rewrite_response.queries) else "MISSING"
+                log.debug(
+                    f"Query {i + 1}: Original: {orig_text} | Rewritten: {rewrit_text}"
+                )
+
             raise ValueError(
                 f"LLM returned {len(rewrite_response.queries)} rewritten queries "
-                f"but expected {len(queries_list)} queries."
+                f"but expected {total_queries} queries."
             )
 
         rewritten_queries_list = rewrite_response.model_dump().get('queries', [])

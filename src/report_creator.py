@@ -1,5 +1,6 @@
 # optimization_summary.py
 import json
+import re
 from typing import Dict, List, Any
 from dataclasses import dataclass
 import pandas as pd
@@ -433,28 +434,99 @@ def _analyze_data_quality(tables: List, queries: List[Dict]) -> Dict[str, Any]:
 
 
 def _analyze_query_coverage(tables: List, queries: List[Dict]) -> Dict[str, Any]:
-    """Analyze which tables are used in queries and how frequently."""
-    if not tables or not queries:
-        return {"table_usage": {}, "unused_tables": [], "most_queried_table": None}
+    """Analyze which tables are used in queries and how frequently (schema-aware)."""
+    if not queries:
+        # If no queries, return structured empty response
+        tbl_names = [t.name for t in tables] if tables else []
+        return {
+            "table_usage": {name.lower(): 0 for name in tbl_names},
+            "unused_tables": tbl_names,
+            "most_queried_table": None,
+            "most_queried_count": 0
+        }
 
-    table_usage = {t.name.lower(): 0 for t in tables}
+    # Build a normalized index of known tables from DDL
+    # Each table is referenced by multiple keys: name, schema.name, db.schema.name (if available)
+    def normalize(s: str) -> str:
+        return re.sub(r'["`]', '', s).strip().lower()
 
-    for query in queries:
-        query_text = query.get('query', '').lower()
-        run_quantity = query.get('runquantity', 0)
+    known_keys = {}  # key -> canonical_name (e.g., 'schema.table' if schema exists else 'table')
+    for t in (tables or []):
+        t_name = normalize(getattr(t, 'name', '') or '')
+        t_schema = normalize(getattr(t, 'schema', '') or '')
+        # Canonical name
+        canon = f"{t_schema}.{t_name}" if t_schema else t_name
+        # Fill index keys for matching
+        if t_name:
+            known_keys[t_name] = canon
+        if t_schema and t_name:
+            known_keys[f"{t_schema}.{t_name}"] = canon
+        # Optionally support db.schema.table if DDLParser provides db (often not)
+        db = normalize(getattr(t, 'database', '') or '')
+        if db and t_schema and t_name:
+            known_keys[f"{db}.{t_schema}.{t_name}"] = canon
 
-        for table_name in table_usage.keys():
-            if f'from {table_name}' in query_text or f'join {table_name}' in query_text:
-                table_usage[table_name] += run_quantity
+    # Initialize usage with known tables (from DDL)
+    usage = {canon: 0 for canon in set(known_keys.values())}
 
-    unused_tables = [name for name, count in table_usage.items() if count == 0]
-    most_queried = max(table_usage.items(), key=lambda x: x[1]) if table_usage else None
+    # Regex to extract referenced tables after FROM/JOIN (grabs possibly qualified names)
+    ref_re = re.compile(r'\b(from|join)\s+([a-zA-Z0-9_\."]+)', re.IGNORECASE)
+
+    def all_forms(ref: str) -> List[str]:
+        # Return possible matching keys to look up in known_keys OR for direct inclusion
+        ref_norm = normalize(ref)
+        parts = [p for p in ref_norm.split('.') if p]
+        forms = []
+        if parts:
+            # table
+            forms.append(parts[-1])
+        if len(parts) >= 2:
+            forms.append('.'.join(parts[-2:]))  # schema.table
+        if len(parts) >= 3:
+            forms.append('.'.join(parts[-3:]))  # db.schema.table
+        return list(dict.fromkeys(forms))  # dedupe, preserve order
+
+    for q in queries:
+        text = (q.get('query') or '')
+        runq = int(q.get('runquantity', 0) or 0)
+        if not text:
+            continue
+        # Lower for matching, but keep original to avoid breaking any edge cases
+        for _, ref in ref_re.findall(text):
+            # Try match against known tables
+            matched = False
+            for form in all_forms(ref):
+                if form in known_keys:
+                    usage[known_keys[form]] += runq
+                    matched = True
+                    break
+            # If not matched and we want to show referenced-but-unknown tables, include them
+            if not matched:
+                # Use the most specific available (schema.table or table)
+                forms = all_forms(ref)
+                key = forms[1] if len(forms) >= 2 else forms[0] if forms else None
+                if key:
+                    usage.setdefault(key, 0)
+                    usage[key] += runq
+
+    # Compute unused among known tables (those from DDL only)
+    known_canons = set(known_keys.values())
+    unused_tables = [k for k in known_canons if usage.get(k, 0) == 0]
+
+    # Identify most queried
+    most_queried_table = None
+    most_queried_count = 0
+    if usage:
+        most_queried_table, most_queried_count = max(usage.items(), key=lambda x: x[1])
+
+    # Sort usage descending for nicer display
+    usage_sorted = {k: v for k, v in sorted(usage.items(), key=lambda x: x[1], reverse=True)}
 
     return {
-        "table_usage": {k: v for k, v in sorted(table_usage.items(), key=lambda x: x[1], reverse=True)},
+        "table_usage": usage_sorted,
         "unused_tables": unused_tables,
-        "most_queried_table": most_queried[0] if most_queried else None,
-        "most_queried_count": most_queried[1] if most_queried else 0
+        "most_queried_table": most_queried_table,
+        "most_queried_count": most_queried_count
     }
 
 
