@@ -239,11 +239,82 @@ class OptimizationAnalyzer:
 
         return recommendations
 
+    def create_concise_report_for_agent(self) -> Dict[str, Any]:
+        """
+        Creates a direct, data-driven report specifically for an AI agent tasked with designing a new schema.
+        This report provides raw, ranked data instead of high-level recommendations.
+        """
+        db_stats = self.data.get('database_stats', {})
+        query_stats = self.data.get('query_analysis', {}).get('statistics', {})
+        schema_info = self.data.get('schema_analysis', {})
+
+        # 1. Extract detailed statistics for each source table
+        source_tables = []
+        for table_stat in db_stats.get('table_statistics', []):
+            table_name = table_stat.get('table_name')
+
+            # Find corresponding column info from schema_analysis
+            columns_data = []
+            for table_schema in schema_info.get('tables', []):
+                if table_schema.get('full_name') == table_name:
+                    # Get cardinality (distinct_count) from db_stats if available
+                    db_column_stats = table_stat.get('column_stats', {})
+                    for col in table_schema.get('columns', []):
+                        col_name = col.get('name')
+                        db_stats_for_col = db_column_stats.get(col_name, {})
+                        columns_data.append({
+                            'name': col_name,
+                            'type': col.get('type'),
+                            'cardinality': db_stats_for_col.get('distinct_count', -1)  # Use -1 if not available
+                        })
+                    break
+
+            source_tables.append({
+                'name': table_name,
+                'row_count': table_stat.get('row_count', 0),
+                'columns': columns_data
+            })
+
+        # 2. Extract raw query workload patterns
+        workload_profile = {
+            # These are the direct inputs for identifying dimension attributes
+            'top_group_by_columns': query_stats.get('most_used_group_by_columns', {}),
+
+            # These are the direct inputs for identifying partitioning keys
+            'top_filter_columns': query_stats.get('most_used_filter_columns', {}),
+
+            # This helps decide between a single fact table or multiple, and identify join keys
+            'top_joined_tables': query_stats.get('most_used_tables', {}),
+
+            # This helps identify measure columns for the fact table
+            'top_aggregated_functions': query_stats.get('aggregation_usage', {})
+        }
+
+        # 3. Determine the Source Schema Archetype (crucial for the agent's strategy)
+        num_tables = len(source_tables)
+        total_joins = sum(query_stats.get('join_patterns', {}).values())
+
+        archetype = "unknown"
+        if num_tables == 1:
+            archetype = "single_big_table"  # Like 'Flights' DB
+        elif num_tables > 1 and total_joins > (query_stats.get('total_queries', 0) / 2):
+            # Heuristic: If joins appear in more than half the queries, it's likely a normalized schema
+            archetype = "normalized_multitable"  # Like 'Quests' DB
+        elif num_tables > 1:
+            archetype = "denormalized_multitable"
+
+        return {
+            'source_schema_archetype': archetype, # one of 'single_big_table', 'normalized_multitable', 'denormalized_multitable'
+            'source_tables_profile': source_tables, # list of {'name', 'row_count', 'columns': [{'name', 'type', 'cardinality'}]}
+            'workload_profile': workload_profile # dict with keys: top_group_by_columns, top_filter_columns, top_joined_tables, top_aggregated_functions
+        }
+
 
 def create_optimization_report(analysis_data: Dict) -> Dict[str, Any]:
     """Создает компактный отчет оптимизации"""
     analyzer = OptimizationAnalyzer(analysis_data)
     summary = analyzer.create_compact_summary()
+    agent_input = analyzer.create_concise_report_for_agent()
 
     # Determine optimization potential based on actual database structure
     db_profile = summary.database_profile
@@ -276,7 +347,8 @@ def create_optimization_report(analysis_data: Dict) -> Dict[str, Any]:
             '2. Materialized views for aggregations (High Impact, Low Effort)',
             '3. Composite indexes on filter columns (Medium Impact, Low Effort)',
             '4. Storage format optimization (Medium Impact, Medium Effort)'
-        ]
+        ],
+        'agent_input': agent_input
     }
 
 

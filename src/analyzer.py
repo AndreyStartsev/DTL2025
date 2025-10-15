@@ -60,9 +60,11 @@ class DataAnalyzer:
                         'tables_used': list(p.tables_used),
                         'joins': p.joins,
                         'aggregations': p.aggregations,
+                        'group_by_columns': list(p.group_by_columns),  # НОВОЕ
+                        'filter_columns': list(p.filter_columns),  # НОВОЕ
                         'cte_usage': p.cte_usage,
                         'run_quantity': p.run_quantity,
-                        'execution_time': p.execution_time
+                        'execution_time': p.execution_time,
                     }
                     for p in query_patterns
                 ],
@@ -128,25 +130,45 @@ class DataAnalyzer:
             'data_statistics': analysis.get('database_stats', {})
         }
 
-        # Выявление проблем производительности
+        # # Частые JOIN'ы как возможность для денормализации
+        # if query_stats.get('join_patterns', {}).get('JOIN', 0) > 0:
+        #     llm_input['optimization_opportunities'].append({
+        #         'type': 'denormalization',
+        #         'description': 'Frequent joins detected - consider denormalization',
+        #         'impact': 'high',
+        #         'tables_involved': list(query_stats.get('most_used_tables', {}).keys())
+        #     })
+        #
+        # # Высокая частота выполнения запросов
+        # high_freq_queries = query_stats.get('high_frequency_queries', [])
+        # if high_freq_queries:
+        #     llm_input['performance_issues'].append({
+        #         'type': 'high_frequency_queries',
+        #         'description': f'{len(high_freq_queries)} queries with high execution frequency',
+        #         'queries': high_freq_queries
+        #     })
+        #
+        # return llm_input
         query_stats = analysis.get('query_analysis', {}).get('statistics', {})
 
-        # Частые JOIN'ы как возможность для денормализации
-        if query_stats.get('join_patterns', {}).get('JOIN', 0) > 0:
+        # Ищем кандидатов на ключи партиционирования
+        frequent_filters = query_stats.get('most_used_filter_columns', [])  # Предполагаем, что query_stats это считает
+        if frequent_filters:
             llm_input['optimization_opportunities'].append({
-                'type': 'denormalization',
-                'description': 'Frequent joins detected - consider denormalization',
+                'type': 'partitioning',
+                'description': 'Columns frequently used in WHERE clauses are good candidates for partitioning keys.',
                 'impact': 'high',
-                'tables_involved': list(query_stats.get('most_used_tables', {}).keys())
+                'columns_involved': frequent_filters
             })
 
-        # Высокая частота выполнения запросов
-        high_freq_queries = query_stats.get('high_frequency_queries', [])
-        if high_freq_queries:
-            llm_input['performance_issues'].append({
-                'type': 'high_frequency_queries',
-                'description': f'{len(high_freq_queries)} queries with high execution frequency',
-                'queries': high_freq_queries
+        # Ищем кандидатов на измерения
+        frequent_group_bys = query_stats.get('most_used_group_by_columns', [])
+        if frequent_group_bys:
+            llm_input['optimization_opportunities'].append({
+                'type': 'dimensional_modeling',
+                'description': 'Columns frequently used in GROUP BY clauses are candidates for dimension attributes.',
+                'impact': 'high',
+                'columns_involved': frequent_group_bys
             })
 
         return llm_input

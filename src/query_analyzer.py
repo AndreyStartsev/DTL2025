@@ -2,8 +2,7 @@
 import re
 import json
 import sqlparse
-from sqlparse.sql import IdentifierList, Identifier, Where, Comparison
-from sqlparse.tokens import Keyword, DML
+from sqlparse.sql import IdentifierList, Identifier, Where, Comparison, Function, Parenthesis
 from typing import List, Dict, Set
 from dataclasses import dataclass
 from collections import defaultdict
@@ -21,6 +20,7 @@ class QueryPattern:
     subqueries_count: int
     group_by_columns: List[str]
     order_by_columns: List[str]
+    filter_columns: List[str]
     window_functions: List[str]
     run_quantity: int
     execution_time: float
@@ -66,6 +66,7 @@ class QueryAnalyzer:
                 joins=self._extract_joins(query_text),
                 aggregations=self._extract_aggregations(query_text),
                 where_conditions=self._extract_where_conditions(parsed),
+                filter_columns=self._extract_filter_columns(parsed),
                 cte_usage=self._has_cte(query_text),
                 subqueries_count=self._count_subqueries(query_text),
                 group_by_columns=self._extract_group_by(query_text),
@@ -185,6 +186,45 @@ class QueryAnalyzer:
 
         return window_funcs
 
+    def _extract_filter_columns(self, parsed_statement) -> List[str]:
+        """
+        Recursively extracts column names from a WHERE clause.
+        """
+        filter_columns = []
+
+        # 1. Find the WHERE clause token
+        where_clause = None
+        for token in parsed_statement.tokens:
+            if isinstance(token, Where):
+                where_clause = token
+                break
+
+        if not where_clause:
+            return []
+
+        # 2. Recursively process tokens within the WHERE clause
+        def process_tokens(tokens):
+            for token in tokens:
+                if isinstance(token, Comparison):
+                    for sub_token in token.tokens:
+                        if isinstance(sub_token, Identifier):
+                            filter_columns.append(sub_token.get_real_name())
+                            break  # Found the column in this comparison
+
+                elif isinstance(token, Function):
+                    for sub_token in token.tokens:
+                        if isinstance(sub_token, Parenthesis):
+                            for param_token in sub_token.tokens:
+                                if isinstance(param_token, Identifier):
+                                    filter_columns.append(param_token.get_real_name())
+
+                # Recursively dive into nested conditions (e.g., AND (col1 = 1 OR col2 = 2))
+                elif hasattr(token, 'tokens'):
+                    process_tokens(token.tokens)
+
+        process_tokens(where_clause.tokens)
+        return list(set(filter_columns))  # Return unique columns
+
     def get_query_statistics(self, patterns: List[QueryPattern]) -> Dict:
         """Собирает статистику по запросам"""
         stats = {
@@ -193,6 +233,8 @@ class QueryAnalyzer:
             'most_used_tables': defaultdict(int),
             'join_patterns': defaultdict(int),
             'aggregation_usage': defaultdict(int),
+            'most_used_filter_columns': defaultdict(int),
+            'most_used_group_by_columns': defaultdict(int),
             'cte_usage': sum(1 for p in patterns if p.cte_usage),
             'avg_execution_time': sum(p.execution_time for p in patterns) / len(patterns) if patterns else 0,
             'high_frequency_queries': []
@@ -203,6 +245,16 @@ class QueryAnalyzer:
 
             for table in pattern.tables_used:
                 stats['most_used_tables'][table] += pattern.run_quantity
+
+            # --- START OF NEW LOGIC ---
+            for col in pattern.filter_columns:
+                # We weight the usage by how often the query is run
+                stats['most_used_filter_columns'][col] += pattern.run_quantity
+
+            for col in pattern.group_by_columns:
+                # Also weight this by run quantity
+                stats['most_used_group_by_columns'][col] += pattern.run_quantity
+            # --- END OF NEW LOGIC ---
 
             for join in pattern.joins:
                 stats['join_patterns'][join['type']] += 1

@@ -6,7 +6,8 @@ from typing import Dict, Any, List, Optional
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Query, Depends, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
+from sqlalchemy import False_
 from sqlalchemy.orm import Session
 from loguru import logger
 
@@ -160,6 +161,31 @@ def create_new_task(
     background_tasks.add_task(run_analysis_pipeline, task_id, request_data)
     logger.success(f"Received new task. Assigned task_id: {task_id}")
     return models.NewTaskResponse(taskid=task_id)
+
+
+@app.get("/task_info/{task_id}", response_model=models.TaskInfoFromDB,
+         tags=["Utilities"],
+         summary="Get detailed task information",
+         )
+def get_task_info(
+        task_id: str,
+        db: Session = Depends(get_db)
+):
+    """
+    Retrieve all information about a specific task except logs.
+
+    Useful for debugging and monitoring task details.
+    """
+    task = crud.get_task(db, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {
+        "id": task.id,
+        "status": task.status,
+        "submitted_at": task.submitted_at,
+        "completed_at": task.completed_at,
+        "original_input": task.original_input
+    }
 
 
 @app.get(
@@ -463,3 +489,30 @@ def get_analysis_report(
         db: Session = Depends(get_db)
 ):
     return create_analysis_report(task_id, db)
+
+
+@app.get(
+    "/logs/{admin_key}",
+    tags=["Utilities"],
+    summary="Get recent application logs",
+    description="Retrieve recent application logs for monitoring and debugging.",
+    responses={
+        200: {"description": "Logs retrieved successfully"}
+    },
+    include_in_schema=True
+)
+def get_recent_logs(
+        admin_key: str
+):
+    """
+    Retrieve app.log file
+    """
+    ADMIN_KEY = "test_admin_key"
+    if admin_key != ADMIN_KEY:
+        raise HTTPException(status_code=403, detail="Unauthorized access")
+    try:
+        log_file_path = "logs/app.log"
+        return FileResponse(log_file_path, media_type='application/octet-stream', filename="app.log")
+    except Exception as e:
+        logger.error(f"Error retrieving log file: {e}")
+        raise HTTPException(status_code=500, detail="Error retrieving log file")

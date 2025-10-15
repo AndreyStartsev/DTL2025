@@ -34,6 +34,14 @@ class Task(Base):
 
     logs = relationship("LogEntry", back_populates="task", cascade="all, delete-orphan")
 
+class TaskInfoFromDB(BaseModel):
+    """All info from DB Task model except logs (for summary endpoints)"""
+    id: str
+    status: str
+    submitted_at: datetime.datetime
+    completed_at: Optional[datetime.datetime] = None
+    original_input: dict
+
 
 class LogEntry(Base):
     __tablename__ = "log_entries"

@@ -33,13 +33,20 @@ def llm_call_with_so(model: ChatOpenAI, prompt: str, output_format: BaseModel) -
     return response
 
 def llm_call_with_so_and_fallback(model: ChatOpenAI, prompt: str, output_format: BaseModel,
-                                  num_retries: int = 3,
+                                  num_retries: int = 5,
                                   fallback_model_id="google/gemini-2.5-flash") -> BaseModel:
     for attempt in range(num_retries):
         # for last attempt use fallback model
-        if attempt == num_retries - 1:
+        if attempt == num_retries - 2:
+            # save prompt to a file for debugging
+            os.makedirs("./logs", exist_ok=True)
+            with open(f"./logs/last_prompt_after_{attempt}_tries.txt", "w", encoding="utf-8") as f:
+                f.write(prompt)
+            # switch to fallback model
             logger.warning("Using fallback model for the last attempt.")
-            model = get_llm(fallback_model_id, max_tokens=18000)
+            model = get_llm(fallback_model_id, max_tokens=28000)
+            test_call = model.invoke(prompt)
+            logger.info(f"Fallback model response (truncated): {test_call}...")
         try:
             return llm_call_with_so(model, prompt, output_format)
         except Exception as e:

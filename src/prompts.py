@@ -5,7 +5,7 @@ Based on the analysis, you will propose a new schema and data migration scripts.
 
 **Constraint Checklist:**
 1.  Your ENTIRE output must be a single, valid JSON object.
-2.  The JSON must have three top-level keys: `ddl`, `migrations`, `queries`.
+2.  The JSON must have two top-level keys: `ddl`, `migrations`.
 3.  The first DDL statement **MUST** be `CREATE SCHEMA`. Use a new, descriptive schema name like `{{default_catalog}}_optimized`.
 4.  All table names in all generated SQL statements (DDL, migrations) **MUST** be fully qualified: `catalog.schema.table`.
 
@@ -17,6 +17,8 @@ Generate the necessary SQL scripts to perform this optimization, following all c
 
 # Existing DDL:
 {ddl}
+
+Return ONLY the JSON object with optimized DDL and migration script, without any additional text or explanation.
     """
 
 

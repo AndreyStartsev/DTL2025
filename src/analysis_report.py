@@ -78,6 +78,18 @@ def create_analysis_report(
     # Get schema_overview from raw_report (where we stored it during processing)
     schema_overview_data = raw_report.get('schema_overview', {})
 
+    # Agent input
+    # {
+    #     'source_schema_archetype': archetype,
+    #     # one of 'single_big_table', 'normalized_multitable', 'denormalized_multitable'
+    #     'source_tables_profile': source_tables,
+    #     # list of {'name', 'row_count', 'columns': [{'name', 'type', 'cardinality'}]}
+    #     'workload_profile': workload_profile
+    #     # dict with keys: top_group_by_columns, top_filter_columns, top_joined_tables, top_aggregated_functions
+    # }
+    agent_input = raw_report.get('agent_input', '')
+
+
     from loguru import logger
     logger.info(f"🟢🟢🟢🟢🟢 {schema_overview_data}")
 
@@ -158,7 +170,8 @@ def create_analysis_report(
                 }
                 for mv in raw_report['query_patterns']['materialized_view_candidates'][:3]
             ]
-        }
+        },
+        "agent_input": agent_input
     }
 
     return viz_data

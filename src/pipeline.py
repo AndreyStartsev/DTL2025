@@ -11,6 +11,7 @@ from src.database import SessionLocal
 from src import crud, models
 from src.report_creator import create_optimization_report, create_insights_report
 from src.llm_connector import get_llm, llm_call_with_so_and_fallback
+from src.offline_fallback import fallback_analysis
 
 # Load environment variables once
 load_dotenv(find_dotenv())
@@ -62,18 +63,24 @@ def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
         # --- Step 1: Analyze DB structure ---
         log.info(f"[{task_id}] Performing initial data analysis...")
         start_time = time()
-        analyzer = DataAnalyzer()
-        start_task_time = time()
-        analysis_result = analyzer.analyze_input_data(input_dict)
-        log.info(f"Data analysis was performed in {time() - start_task_time:.2f}s")
-        start_task_time = time()
-        db_analysis_report = create_optimization_report(analysis_result)
-        log.info(f"Optimization report was created in {time() - start_task_time:.2f}s")
 
-        # Additionally create a human-readable insights report and add as "schema_overview"
-        db_insights_report_dict = create_insights_report(input_dict.get('ddl', []), input_dict.get('queries', []))
-        db_analysis_report['schema_overview'] = db_insights_report_dict
-        log.success(f"✅ [{task_id}] DB analysis completed in {time() - start_time:.2f}s")
+        try:
+            analyzer = DataAnalyzer()
+            start_task_time = time()
+            analysis_result = analyzer.analyze_input_data(input_dict)
+            log.info(f"Data analysis was performed in {time() - start_task_time:.2f}s")
+            start_task_time = time()
+            db_analysis_report = create_optimization_report(analysis_result)
+            log.info(f"Optimization report was created in {time() - start_task_time:.2f}s")
+
+            # Additionally create a human-readable insights report and add as "schema_overview"
+            db_insights_report_dict = create_insights_report(input_dict.get('ddl', []), input_dict.get('queries', []))
+            db_analysis_report['schema_overview'] = db_insights_report_dict
+            log.success(f"✅ [{task_id}] DB analysis completed in {time() - start_time:.2f}s")
+        except Exception as e:
+            log.error(f"[{task_id}] Analysis failed, falling back to offline analysis: {e}", exc_info=True)
+            db_analysis_report = fallback_analysis(input_dict.get('queries', []))
+            log.success(f"✅ [{task_id}] Fallback DB analysis completed in {time() - start_time:.2f}s")
 
         # Save analysis result to the DB
         try:
@@ -86,9 +93,10 @@ def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
             crud.update_task_with_analysis(db, task_id, {"raw_report": db_analysis_report})
 
         # --- Step 2: Generate new DDL & Migrations ---
-        db_analysis_report.pop('schema_overview', None)
+        db_agent_input = db_analysis_report.get('agent_input', '')
+        log.debug(f"[{task_id}] Agent Input for LLM: {db_agent_input}")
         prompt1 = PROMPT_STEP1.format(
-            db_analysis=db_analysis_report,
+            db_analysis=db_agent_input,
             ddl=ddl_str,
             strategy=config.strategy
         )
