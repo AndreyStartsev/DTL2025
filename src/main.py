@@ -2,12 +2,12 @@
 import uuid
 import difflib
 import datetime
+import sqlparse
 from typing import Dict, Any, List, Optional
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Query, Depends, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, FileResponse
-from sqlalchemy import False_
 from sqlalchemy.orm import Session
 from loguru import logger
 
@@ -445,32 +445,71 @@ def get_query_diffs(
         db: Session = Depends(get_db)
 ):
     """
-    Get unified diffs showing changes between original and optimized queries.
-
-    Returns a side-by-side comparison in unified diff format, making it easy to review
-    exactly what optimizations were applied to each query.
-
-    **Output Format**: Standard unified diff format (similar to `git diff`)
+    Get side-by-side comparison of original and optimized queries.
     """
-    task = crud.get_task(db, task_id)
-    if not task or task.status != "DONE":
-        raise HTTPException(status_code=404, detail="Completed task with results not found")
+    try:
+        task = crud.get_task(db, task_id)
+        if not task or task.status != "DONE":
+            raise HTTPException(status_code=404, detail="Completed task with results not found")
 
-    original_queries = {q['queryid']: q['query'] for q in task.original_input.get('queries', [])}
-    rewritten_queries = {q['queryid']: q['query'] for q in task.result.get('queries', [])}
+        # Get original queries (list of dicts with queryid and query)
+        original_input = task.original_input or {}
+        original_queries_list = original_input.get('queries', [])
 
-    diffs = []
-    for queryid, original_query in original_queries.items():
-        rewritten_query = rewritten_queries.get(queryid, "")
-        diff_text = "\n".join(difflib.unified_diff(
-            original_query.splitlines(keepends=True),
-            rewritten_query.splitlines(keepends=True),
-            fromfile='original',
-            tofile='optimized',
-        ))
-        diffs.append(models.QueryDiff(queryid=queryid, diff=diff_text))
+        # Get rewritten queries (list of strings)
+        rewritten_queries_list = task.rewritten_queries if task.rewritten_queries else []
 
-    return models.QueryDiffResponse(diffs=diffs)
+        diffs = []
+        for idx, orig_query_obj in enumerate(original_queries_list):
+            queryid = orig_query_obj.get('queryid', f'query_{idx}')
+            original_query = orig_query_obj.get('query', '')
+
+            # Get rewritten query by index
+            rewritten_query = ''
+            if idx < len(rewritten_queries_list):
+                rewritten_query = rewritten_queries_list[idx]
+
+            # Format SQL for readability
+            formatted_original = sqlparse.format(
+                original_query,
+                reindent=True,
+                keyword_case='upper',
+                indent_width=2,
+                wrap_after=80
+            )
+
+            formatted_rewritten = sqlparse.format(
+                rewritten_query,
+                reindent=True,
+                keyword_case='upper',
+                indent_width=2,
+                wrap_after=80
+            )
+
+            diffs.append(models.QueryDiff(
+                queryid=queryid,
+                original=formatted_original,
+                optimized=formatted_rewritten,
+                diff="",  # Not used anymore
+                original_length=len(original_query),
+                optimized_length=len(rewritten_query),
+                queryid_match=bool(rewritten_query)
+            ))
+
+        debug_info = {
+            "original_count": len(original_queries_list),
+            "rewritten_count": len(rewritten_queries_list),
+            "formatted": True
+        }
+
+        return models.QueryDiffResponse(diffs=diffs, debug_info=debug_info)
+
+    except Exception as e:
+        logger.error(f"Error in get_query_diffs: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error generating diffs:{str(e)}"
+        )
 
 
 @app.get(
@@ -516,3 +555,24 @@ def get_recent_logs(
     except Exception as e:
         logger.error(f"Error retrieving log file: {e}")
         raise HTTPException(status_code=500, detail="Error retrieving log file")
+
+
+@app.get("/debug/task/{task_id}", tags=["Debug"], summary="Debug task data",
+         description="Temporary debug endpoint to inspect task data structures.",
+         include_in_schema=False)
+def debug_task(task_id: str, db: Session = Depends(get_db)):
+    """Temporary debug endpoint to inspect task data"""
+    task = crud.get_task(db, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    return {
+        "task_id": task.id,
+        "status": task.status,
+        "original_input_type": str(type(task.original_input)),
+        "original_input_sample": str(task.original_input)[:200] if task.original_input else None,
+        "rewritten_queries_type": str(type(task.rewritten_queries)),
+        "rewritten_queries_sample": str(task.rewritten_queries)[:200] if task.rewritten_queries else None,
+        "rewritten_queries_is_list": isinstance(task.rewritten_queries, list),
+        "rewritten_queries_length": len(task.rewritten_queries) if task.rewritten_queries else 0,
+    }

@@ -9,7 +9,8 @@ from src.prompts import PROMPT_STEP1, PROMPT_STEP2
 from src.analyzer import DataAnalyzer
 from src.database import SessionLocal
 from src import crud, models
-from src.report_creator import create_optimization_report, create_insights_report
+from src.report_creator import create_optimization_report
+from src.dashboard_utils import create_insights_report
 from src.llm_connector import get_llm, llm_call_with_so_and_fallback
 from src.offline_fallback import fallback_analysis
 
@@ -78,6 +79,7 @@ def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
             db_analysis_report['schema_overview'] = db_insights_report_dict
             log.success(f"✅ [{task_id}] DB analysis completed in {time() - start_time:.2f}s")
         except Exception as e:
+            raise e
             log.error(f"[{task_id}] Analysis failed, falling back to offline analysis: {e}", exc_info=True)
             db_analysis_report = fallback_analysis(input_dict.get('queries', []))
             log.success(f"✅ [{task_id}] Fallback DB analysis completed in {time() - start_time:.2f}s")
@@ -93,7 +95,12 @@ def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
             crud.update_task_with_analysis(db, task_id, {"raw_report": db_analysis_report})
 
         # --- Step 2: Generate new DDL & Migrations ---
-        db_agent_input = db_analysis_report.get('agent_input', '')
+        # remove schema_overview from report and agent input before passing to LLM
+        # db_agent_input = db_analysis_report.copy()
+        # db_agent_input.pop('schema_overview', None)
+        # db_agent_input.pop('agent_input', None)
+
+        db_agent_input = db_analysis_report.get('design_document', db_analysis_report)
         log.debug(f"[{task_id}] Agent Input for LLM: {db_agent_input}")
         prompt1 = PROMPT_STEP1.format(
             db_analysis=db_agent_input,
@@ -199,6 +206,7 @@ def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
         log.success(f"Task {task_id} finished successfully.")
 
     except Exception as e:
+        raise e
         log.error(f"Task {task_id} failed: {str(e)}", exc_info=True)
         crud.update_task_status(db, task_id, "FAILED", {"error": str(e)})
     finally:

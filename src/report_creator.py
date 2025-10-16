@@ -1,11 +1,13 @@
-# optimization_summary.py
+# optimization_summary.py - IMPROVED VERSION
+
 import json
 import re
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Tuple
 from dataclasses import dataclass
 import pandas as pd
 
 from src.ddl_parser import DDLParser
+from src.query_analyzer import QueryAnalyzer
 
 
 @dataclass
@@ -23,7 +25,6 @@ class OptimizationAnalyzer:
 
     def create_compact_summary(self) -> OptimizationSummary:
         """Создает компактное резюме для оптимизации"""
-
         return OptimizationSummary(
             database_profile=self._get_database_profile(),
             performance_bottlenecks=self._identify_bottlenecks(),
@@ -40,7 +41,6 @@ class OptimizationAnalyzer:
         overview = db_stats.get('overview', {})
         table_stats = db_stats.get('table_statistics', [])
 
-        # Calculate totals across all tables
         total_tables = len(table_stats)
         total_rows = sum(t.get('row_count', 0) for t in table_stats)
         total_size_bytes = sum(t.get('size_bytes', 0) for t in table_stats)
@@ -49,12 +49,14 @@ class OptimizationAnalyzer:
             'database_type': overview.get('driver', 'unknown'),
             'table_count': total_tables,
             'total_rows': f"{total_rows:,}",
+            'total_rows_numeric': total_rows,
             'total_size_gb': round(total_size_bytes / (1024 ** 3), 2),
             'total_columns': schema_stats.get('total_columns', 0),
             'column_distribution': schema_stats.get('column_types_distribution', {}),
             'largest_table': {
                 'name': table_stats[0].get('table_name', '') if table_stats else '',
                 'rows': f"{table_stats[0].get('row_count', 0):,}" if table_stats else '0',
+                'rows_numeric': table_stats[0].get('row_count', 0) if table_stats else 0,
                 'size_gb': round(table_stats[0].get('size_bytes', 0) / (1024 ** 3), 2) if table_stats else 0
             } if table_stats else None
         }
@@ -62,10 +64,9 @@ class OptimizationAnalyzer:
     def _identify_bottlenecks(self) -> List[Dict[str, Any]]:
         """Выявляет узкие места производительности"""
         bottlenecks = []
-
         query_patterns = self.data.get('query_analysis', {}).get('patterns', [])
 
-        # Медленные запросы (>30 сек)
+        # Slow queries (>30 sec)
         slow_queries = [q for q in query_patterns if q.get('execution_time', 0) > 30]
         if slow_queries:
             bottlenecks.append({
@@ -83,7 +84,7 @@ class OptimizationAnalyzer:
                 ]
             })
 
-        # Высоконагруженные запросы (>1000 выполнений)
+        # High volume queries (>1000 executions)
         high_volume_queries = [q for q in query_patterns if q.get('run_quantity', 0) > 1000]
         if high_volume_queries:
             bottlenecks.append({
@@ -99,7 +100,7 @@ class OptimizationAnalyzer:
                                    'total_time': q['execution_time'] * q['run_quantity']
                                }
                                for q in sorted(high_volume_queries, key=lambda x: x['run_quantity'], reverse=True)
-                           ][:5]  # Топ 5
+                           ][:5]
             })
 
         return bottlenecks
@@ -114,7 +115,7 @@ class OptimizationAnalyzer:
         main_table = tables[0]
         columns = main_table.get('columns', [])
 
-        # Группируем колонки по функциональности
+        # Group columns by functionality
         time_columns = [c for c in columns if any(word in c['name'].lower()
                                                   for word in ['date', 'time', 'year', 'month', 'quarter', 'day'])]
 
@@ -131,11 +132,11 @@ class OptimizationAnalyzer:
             'total_columns': len(columns),
             'partitioning_candidates': [c['name'] for c in time_columns],
             'indexing_candidates': {
-                'location': [c['name'] for c in location_columns[:3]],  # Топ 3
-                'airline': [c['name'] for c in airline_columns[:2]],  # Топ 2
-                'performance': [c['name'] for c in delay_columns[:3]]  # Топ 3
+                'location': [c['name'] for c in location_columns[:3]],
+                'airline': [c['name'] for c in airline_columns[:2]],
+                'performance': [c['name'] for c in delay_columns[:3]]
             },
-            'denormalization_potential': 'low',  # Уже денормализованная таблица
+            'denormalization_potential': 'low',
         }
 
     def _extract_key_patterns(self) -> Dict[str, Any]:
@@ -143,12 +144,8 @@ class OptimizationAnalyzer:
         query_stats = self.data.get('query_analysis', {}).get('statistics', {})
         patterns = self.data.get('query_analysis', {}).get('patterns', [])
 
-        # Анализ паттернов GROUP BY
-        group_by_patterns = {}
         aggregation_patterns = {}
-
         for pattern in patterns:
-            # Подсчет агрегаций
             for agg in pattern.get('aggregations', []):
                 aggregation_patterns[agg] = aggregation_patterns.get(agg, 0) + pattern.get('run_quantity', 0)
 
@@ -164,19 +161,17 @@ class OptimizationAnalyzer:
     def _identify_mv_candidates(self, patterns: List[Dict]) -> List[Dict[str, Any]]:
         """Определяет кандидатов для материализованных представлений"""
         candidates = []
-
-        # Группируем запросы по схожим агрегациям
         aggregation_groups = {}
 
         for pattern in patterns:
-            if pattern.get('run_quantity', 0) > 500:  # Только часто выполняемые
+            if pattern.get('run_quantity', 0) > 500:
                 agg_key = tuple(sorted(pattern.get('aggregations', [])))
                 if agg_key not in aggregation_groups:
                     aggregation_groups[agg_key] = []
                 aggregation_groups[agg_key].append(pattern)
 
         for agg_key, group_patterns in aggregation_groups.items():
-            if len(group_patterns) >= 2:  # Минимум 2 запроса с похожими агрегациями
+            if len(group_patterns) >= 2:
                 total_volume = sum(p.get('run_quantity', 0) for p in group_patterns)
                 candidates.append({
                     'aggregations': list(agg_key),
@@ -192,7 +187,7 @@ class OptimizationAnalyzer:
         """Генерирует рекомендации по оптимизации"""
         recommendations = []
 
-        # Рекомендация по партиционированию
+        # Partitioning recommendation
         recommendations.append({
             'type': 'partitioning',
             'priority': 'high',
@@ -202,7 +197,7 @@ class OptimizationAnalyzer:
             'effort': 'medium'
         })
 
-        # Рекомендация по материализованным представлениям
+        # Materialized views
         mv_candidates = self._identify_mv_candidates(
             self.data.get('query_analysis', {}).get('patterns', [])
         )
@@ -217,7 +212,7 @@ class OptimizationAnalyzer:
                 'effort': 'low'
             })
 
-        # Рекомендация по индексам
+        # Indexing recommendation
         recommendations.append({
             'type': 'indexing',
             'priority': 'medium',
@@ -227,7 +222,7 @@ class OptimizationAnalyzer:
             'effort': 'low'
         })
 
-        # Рекомендация по компрессии
+        # Compression recommendation
         recommendations.append({
             'type': 'compression',
             'priority': 'medium',
@@ -240,83 +235,47 @@ class OptimizationAnalyzer:
         return recommendations
 
     def create_concise_report_for_agent(self) -> Dict[str, Any]:
-        """
-        Creates a direct, data-driven report specifically for an AI agent tasked with designing a new schema.
-        This report provides raw, ranked data instead of high-level recommendations.
-        """
-        db_stats = self.data.get('database_stats', {})
+        """Creates data-driven report for AI agent schema design"""
         query_stats = self.data.get('query_analysis', {}).get('statistics', {})
-        schema_info = self.data.get('schema_analysis', {})
+        schema_tables = self.data.get('schema_analysis', {}).get('tables', [])
 
-        # 1. Extract detailed statistics for each source table
-        source_tables = []
-        for table_stat in db_stats.get('table_statistics', []):
-            table_name = table_stat.get('table_name')
-
-            # Find corresponding column info from schema_analysis
-            columns_data = []
-            for table_schema in schema_info.get('tables', []):
-                if table_schema.get('full_name') == table_name:
-                    # Get cardinality (distinct_count) from db_stats if available
-                    db_column_stats = table_stat.get('column_stats', {})
-                    for col in table_schema.get('columns', []):
-                        col_name = col.get('name')
-                        db_stats_for_col = db_column_stats.get(col_name, {})
-                        columns_data.append({
-                            'name': col_name,
-                            'type': col.get('type'),
-                            'cardinality': db_stats_for_col.get('distinct_count', -1)  # Use -1 if not available
-                        })
-                    break
-
-            source_tables.append({
-                'name': table_name,
-                'row_count': table_stat.get('row_count', 0),
-                'columns': columns_data
-            })
-
-        # 2. Extract raw query workload patterns
-        workload_profile = {
-            # These are the direct inputs for identifying dimension attributes
-            'top_group_by_columns': query_stats.get('most_used_group_by_columns', {}),
-
-            # These are the direct inputs for identifying partitioning keys
-            'top_filter_columns': query_stats.get('most_used_filter_columns', {}),
-
-            # This helps decide between a single fact table or multiple, and identify join keys
-            'top_joined_tables': query_stats.get('most_used_tables', {}),
-
-            # This helps identify measure columns for the fact table
-            'top_aggregated_functions': query_stats.get('aggregation_usage', {})
-        }
-
-        # 3. Determine the Source Schema Archetype (crucial for the agent's strategy)
-        num_tables = len(source_tables)
+        num_tables = len(schema_tables)
         total_joins = sum(query_stats.get('join_patterns', {}).values())
+        total_queries = query_stats.get('total_queries', 1)
 
         archetype = "unknown"
         if num_tables == 1:
-            archetype = "single_big_table"  # Like 'Flights' DB
-        elif num_tables > 1 and total_joins > (query_stats.get('total_queries', 0) / 2):
-            # Heuristic: If joins appear in more than half the queries, it's likely a normalized schema
-            archetype = "normalized_multitable"  # Like 'Quests' DB
+            archetype = "single_big_table"
+        elif num_tables > 1 and total_joins > (total_queries / 2):
+            archetype = "normalized_multitable"
         elif num_tables > 1:
             archetype = "denormalized_multitable"
 
         return {
-            'source_schema_archetype': archetype, # one of 'single_big_table', 'normalized_multitable', 'denormalized_multitable'
-            'source_tables_profile': source_tables, # list of {'name', 'row_count', 'columns': [{'name', 'type', 'cardinality'}]}
-            'workload_profile': workload_profile # dict with keys: top_group_by_columns, top_filter_columns, top_joined_tables, top_aggregated_functions
+            'source_schema_archetype': archetype,
+            'workload_profile': {
+                'top_group_by_columns': query_stats.get('most_used_group_by_columns', {}),
+                'top_filter_columns': query_stats.get('most_used_filter_columns', {}),
+                'top_joined_tables': query_stats.get('most_used_tables', {}),
+                'top_aggregated_functions': query_stats.get('aggregation_usage', {})
+            },
+            'source_tables': [
+                {
+                    'name': t.get('name', ''),
+                    'column_count': len(t.get('columns', [])),
+                    'columns': t.get('columns', [])  # ADDED: Include full column list
+                }
+                for t in schema_tables
+            ]
         }
 
 
 def create_optimization_report(analysis_data: Dict) -> Dict[str, Any]:
-    """Создает компактный отчет оптимизации"""
+    """Создает компактный отчет оптимизации - WITH ENHANCED MARKDOWN"""
     analyzer = OptimizationAnalyzer(analysis_data)
     summary = analyzer.create_compact_summary()
     agent_input = analyzer.create_concise_report_for_agent()
 
-    # Determine optimization potential based on actual database structure
     db_profile = summary.database_profile
     table_count = db_profile.get('table_count', 0)
 
@@ -348,18 +307,362 @@ def create_optimization_report(analysis_data: Dict) -> Dict[str, Any]:
             '3. Composite indexes on filter columns (Medium Impact, Low Effort)',
             '4. Storage format optimization (Medium Impact, Medium Effort)'
         ],
-        'agent_input': agent_input
+        'agent_input': agent_input,
+        'design_document': _generate_enhanced_markdown_document(analysis_data, agent_input, summary)
     }
 
 
-# Функция для создания таблиц в удобном формате
+def _determine_target_schema_type(archetype: str, workload: Dict, db_profile: Dict) -> Tuple[str, str]:
+    """
+    Determines the recommended target schema type based on source archetype and workload.
+    Returns: (schema_type, reasoning)
+    """
+    group_by_cols = workload.get('top_group_by_columns', {})
+    filter_cols = workload.get('top_filter_columns', {})
+
+    num_group_by = len(group_by_cols)
+    num_filters = len(filter_cols)
+
+    if archetype == "single_big_table":
+        # For single table with many GROUP BY columns, recommend star schema
+        if num_group_by >= 3:
+            return ("star_schema",
+                    "The source is a single denormalized table with heavy analytical workload. "
+                    "A Star Schema will improve query performance by separating dimensions from facts, "
+                    "reduce data redundancy, and enable better indexing and partitioning strategies.")
+        else:
+            return ("optimized_single_table",
+                    "The source is a single table with limited grouping patterns. "
+                    "Recommend optimizing the existing structure with partitioning and better file formats "
+                    "rather than full restructuring.")
+
+    elif archetype == "normalized_multitable":
+        # For normalized schema with many joins, consider denormalization
+        total_joins = sum(workload.get('top_joined_tables', {}).values())
+        if total_joins > 10000:
+            return ("denormalized_fact_table",
+                    "The source is highly normalized with frequent join operations. "
+                    "Denormalizing into a wider fact table will reduce join overhead and improve query performance.")
+        else:
+            return ("refined_star_schema",
+                    "The source is normalized but join volume is manageable. "
+                    "Refine into a clean Star Schema with well-defined dimensions and a central fact table.")
+
+    else:  # denormalized_multitable
+        return ("consolidated_star_schema",
+                "The source has multiple denormalized tables. "
+                "Consolidate into a unified Star Schema to improve consistency and query patterns.")
+
+
+def _identify_dimension_candidates(workload: Dict, source_tables: List[Dict]) -> Dict[str, List[str]]:
+    """
+    Identifies columns that should become dimensions based on workload patterns.
+    Returns: dict of dimension_name -> [column_names]
+    """
+    group_by_cols = workload.get('top_group_by_columns', {})
+
+    dimensions = {}
+
+    # Analyze column names to group into logical dimensions
+    time_keywords = ['date', 'time', 'year', 'month', 'quarter', 'day', 'week']
+    location_keywords = ['origin', 'dest', 'city', 'state', 'country', 'airport', 'location']
+    entity_keywords = ['airline', 'carrier', 'company', 'operator', 'customer', 'supplier']
+
+    time_cols = []
+    location_cols = []
+    entity_cols = []
+    other_cols = []
+
+    for col in group_by_cols.keys():
+        col_lower = col.lower()
+        if any(kw in col_lower for kw in time_keywords):
+            time_cols.append(col)
+        elif any(kw in col_lower for kw in location_keywords):
+            location_cols.append(col)
+        elif any(kw in col_lower for kw in entity_keywords):
+            entity_cols.append(col)
+        else:
+            other_cols.append(col)
+
+    if time_cols:
+        dimensions['dim_date'] = time_cols
+    if location_cols:
+        dimensions['dim_location'] = location_cols
+    if entity_cols:
+        # Infer dimension name from column prefix
+        first_entity = entity_cols[0].lower()
+        if 'airline' in first_entity or 'carrier' in first_entity:
+            dimensions['dim_airline'] = entity_cols
+        else:
+            dimensions['dim_entity'] = entity_cols
+
+    return dimensions
+
+
+def _identify_fact_measures(source_tables: List[Dict], group_by_cols: Dict) -> List[str]:
+    """
+    Identifies numeric columns that should be measures in the fact table.
+    """
+    if not source_tables:
+        return []
+
+    main_table = source_tables[0]
+    columns = main_table.get('columns', [])
+
+    # Get all column names that are NOT in group by (dimensions)
+    dimension_cols = set(group_by_cols.keys())
+
+    measure_keywords = ['amount', 'total', 'sum', 'count', 'delay', 'time', 'distance', 'duration',
+                        'quantity', 'price', 'cost', 'revenue', 'minutes', 'hours']
+
+    numeric_types = ['int', 'integer', 'bigint', 'decimal', 'numeric', 'float', 'double', 'real']
+
+    measures = []
+    for col in columns:
+        col_name = col.get('name', '')
+        col_type = col.get('data_type', '').lower()
+
+        # Skip if it's a dimension column
+        if col_name in dimension_cols:
+            continue
+
+        # Include if numeric type or has measure keyword in name
+        if any(nt in col_type for nt in numeric_types):
+            measures.append(col_name)
+        elif any(kw in col_name.lower() for kw in measure_keywords):
+            measures.append(col_name)
+
+    return measures
+
+
+def _generate_enhanced_markdown_document(analysis_data: Dict, agent_input: Dict,
+                                         summary: OptimizationSummary) -> str:
+    """
+    ENHANCED: Generates comprehensive markdown design document with schema transformation guidance.
+    """
+    archetype = agent_input['source_schema_archetype']
+    workload = agent_input['workload_profile']
+    db_profile = summary.database_profile
+    query_patterns = summary.query_patterns
+
+    # Determine target schema strategy
+    target_schema, schema_reasoning = _determine_target_schema_type(archetype, workload, db_profile)
+
+    # Identify dimensions and facts - NOW USING agent_input['source_tables']
+    dimension_candidates = _identify_dimension_candidates(workload, agent_input['source_tables'])
+    fact_measures = _identify_fact_measures(agent_input['source_tables'],
+                                            workload.get('top_group_by_columns', {}))
+
+    sections = []
+
+    # ==================== HEADER ====================
+    sections.append("# Design Document: Optimized Schema for Analytics Database\n")
+    sections.append("Based on analysis of the source schema and query workload, this document outlines "
+                    "the proposed design for a new, optimized analytical database.\n")
+
+    # ==================== SECTION 1: SOURCE ANALYSIS ====================
+    sections.append("## 1. Source System Analysis\n")
+    sections.append(f"*   **Schema Archetype:** `{archetype}`")
+    sections.append(f"    *   **Observation:** {schema_reasoning}")
+
+    # Source table profile
+    if agent_input['source_tables']:
+        sections.append("*   **Source Table Profile:**")
+        for table in agent_input['source_tables'][:3]:  # Show top 3 tables
+            table_name = table.get('name', 'Unknown')
+            col_count = table.get('column_count', 0)
+            sections.append(f"    *   **Table:** `{table_name}` ({col_count} columns)")
+
+        if db_profile.get('total_rows_numeric', 0) > 0:
+            total_rows_m = db_profile['total_rows_numeric'] / 1_000_000
+            sections.append(f"    *   **Total Rows:** ~{total_rows_m:.1f} Million")
+
+        sections.append(f"    *   **Total Size:** {db_profile.get('total_size_gb', 0):.1f} GB")
+
+        if archetype == "single_big_table":
+            sections.append("    *   **Key Challenge:** Executing aggregations and filters on a table "
+                            "of this size without proper structuring is inefficient and costly.")
+    sections.append("")
+
+    # ==================== SECTION 2: WORKLOAD ANALYSIS ====================
+    sections.append("## 2. Workload Profile Analysis\n")
+    sections.append(
+        "The query workload is heavily analytical, focusing on aggregations, filtering, and segmentation.\n")
+
+    # Top grouping columns
+    group_by_cols = workload.get('top_group_by_columns', {})
+    if group_by_cols:
+        sections.append("*   **Top Grouping Columns (Candidates for Dimensions):**")
+        for i, (col, count) in enumerate(sorted(group_by_cols.items(),
+                                                key=lambda x: x[1], reverse=True)[:5], 1):
+            sections.append(f"    {i}.  `{col}` (Used in ~{count / 1000:.1f}k query executions)")
+        sections.append("")
+
+    # Top filtering columns
+    filter_cols = workload.get('top_filter_columns', {})
+    if filter_cols:
+        sections.append("*   **Top Filtering Columns (Candidates for Partitioning & Indexing):**")
+        for i, (col, count) in enumerate(sorted(filter_cols.items(),
+                                                key=lambda x: x[1], reverse=True)[:5], 1):
+            sections.append(f"    {i}.  `{col}` (Used in ~{count / 1000:.1f}k query executions)")
+        sections.append("")
+
+    # Aggregation patterns
+    top_aggs = query_patterns.get('top_aggregations', {})
+    if top_aggs:
+        sections.append("*   **Common Aggregation Patterns:**")
+        for agg, count in list(top_aggs.items())[:3]:
+            sections.append(f"    *   `{agg}` - {count:,} executions")
+        sections.append("")
+
+    # ==================== SECTION 3: TARGET SCHEMA ====================
+    sections.append(f"## 3. Proposed Target Schema: {target_schema.replace('_', ' ').title()}\n")
+
+    if "star" in target_schema.lower():
+        sections.append("A **Star Schema** is recommended to separate descriptive attributes (Dimensions) "
+                        "from quantitative metrics (Facts). This design optimizes analytical queries and "
+                        "improves maintainability.\n")
+
+        # Dimension Tables
+        if dimension_candidates:
+            sections.append("### 3.1. Dimension Tables\n")
+            sections.append("The following dimension tables will store unique, low-cardinality attributes.\n")
+
+            for dim_name, cols in dimension_candidates.items():
+                sections.append(f"#### `{dim_name}`")
+                sections.append(
+                    f"*   **Purpose:** Stores unique information about {dim_name.replace('dim_', '')} attributes.")
+                sections.append(f"*   **Source Columns:** {', '.join([f'`{c}`' for c in cols[:5]])}")
+                sections.append("*   **Proposed Columns:**")
+                sections.append(
+                    f"    *   `{dim_name.replace('dim_', '')}_key` (INTEGER, Primary Key, Auto-incrementing)")
+
+                # Add specific columns based on dimension type
+                for col in cols[:3]:  # Show first 3 source columns
+                    clean_col = col.lower().replace(' ', '_')
+                    sections.append(f"    *   `{clean_col}` (VARCHAR)")
+
+                sections.append("")
+
+        # Fact Table
+        sections.append("### 3.2. Fact Table\n")
+        sections.append("A central fact table will store the quantitative measures and foreign keys to dimensions.\n")
+
+        sections.append("#### `fact_main`")
+        sections.append("*   **Purpose:** Granular record of each event/transaction with numeric measures.")
+        sections.append("*   **Grain:** One row per event.")
+        sections.append("*   **Proposed Columns:**")
+
+        # Foreign keys
+        for dim_name in dimension_candidates.keys():
+            fk_name = f"{dim_name.replace('dim_', '')}_key"
+            sections.append(f"    *   `{fk_name}` (INTEGER, Foreign Key to `{dim_name}`)")
+
+        # Measures
+        if fact_measures:
+            for measure in fact_measures[:10]:  # Show first 10 measures
+                measure_clean = measure.lower().replace(' ', '_')
+                sections.append(f"    *   `{measure_clean}` (FLOAT/INTEGER)")
+
+        sections.append("")
+
+    elif "denormalized" in target_schema.lower():
+        sections.append("A **Denormalized Fact Table** is recommended to reduce join overhead while "
+                        "maintaining analytical query performance.\n")
+        sections.append("*   **Strategy:** Pre-join dimension attributes into the fact table")
+        sections.append("*   **Trade-off:** Larger table size for faster query execution")
+        sections.append("*   **Use Case:** When join performance is the primary bottleneck\n")
+
+    # ==================== SECTION 4: PHYSICAL DESIGN ====================
+    sections.append("## 4. Physical Design Recommendations\n")
+
+    # Partitioning
+    if filter_cols:
+        top_filter = sorted(filter_cols.items(), key=lambda x: x[1], reverse=True)[0]
+        sections.append("*   **Partitioning:** The fact table **must be partitioned**.")
+        sections.append(f"    *   **Partition Key:** `{top_filter[0]}` "
+                        f"({top_filter[1]:,} filter operations)")
+
+        # Determine partition type
+        col_lower = top_filter[0].lower()
+        if any(kw in col_lower for kw in ['year', 'month', 'date', 'time', 'quarter']):
+            sections.append("    *   **Partition Type:** Time-based (RANGE or LIST by year/month)")
+            sections.append("    *   **Justification:** Time-based partitioning enables partition pruning "
+                            "for the majority of queries, dramatically reducing data scanned.")
+        else:
+            sections.append("    *   **Partition Type:** LIST or HASH partitioning")
+            sections.append("    *   **Justification:** Partitioning by this high-filter column will "
+                            "enable partition pruning and improve query performance.")
+        sections.append("")
+
+    # File Format
+    sections.append("*   **File Format:** Use a columnar format like **Parquet** or **ORC**.")
+    sections.append("    *   **Justification:** Columnar formats are optimal for analytical queries "
+                    "that read specific columns rather than entire rows. Compression ratios are "
+                    "significantly better (40-60% storage savings).")
+    sections.append("    *   **Compression:** Use **Snappy** (balanced) or **ZSTD** (higher compression).\n")
+
+    # Indexing (if applicable)
+    if dimension_candidates and not target_schema.startswith("denormalized"):
+        sections.append("*   **Indexing Strategy:**")
+        sections.append("    *   Create indexes on foreign key columns in the fact table for join optimization")
+
+        if filter_cols:
+            top_filters = sorted(filter_cols.items(), key=lambda x: x[1], reverse=True)[:3]
+            if len(top_filters) > 1:
+                filter_names = ', '.join([f'`{f[0]}`' for f in top_filters])
+                sections.append(f"    *   Consider composite indexes on frequently filtered columns: {filter_names}")
+        sections.append("")
+
+    # Data distribution (for MPP databases)
+    if db_profile.get('database_type', '').lower() in ['trino', 'presto', 'redshift', 'snowflake']:
+        sections.append("*   **Data Distribution:**")
+
+        if "star" in target_schema.lower() and dimension_candidates:
+            sections.append("    *   **Fact Table:** DISTRIBUTE by date key or high-cardinality dimension key")
+            sections.append("    *   **Dimension Tables:** REPLICATE (broadcast) for small dimensions")
+        else:
+            sections.append("    *   **Distribution Key:** Choose high-cardinality column used in joins")
+
+        sections.append("    *   **Justification:** Proper distribution minimizes data movement during joins.\n")
+
+    # ==================== SECTION 5: MIGRATION NOTES ====================
+    sections.append("## 5. Implementation Notes\n")
+
+    # Trino-specific notes
+    if db_profile.get('database_type', '').lower() in ['trino', 'presto']:
+        sections.append("### Trino-Specific Considerations\n")
+        sections.append("*   **Materialized Views:** Trino does not support materialized views. "
+                        "Use external tools like **dbt** or pre-aggregation tables managed by Airflow.")
+        sections.append("*   **Partitioning:** Leverage Hive-style partitioning in the underlying storage (S3, HDFS).")
+        sections.append("*   **Table Format:** Consider **Iceberg** or **Delta Lake** for ACID transactions "
+                        "and time travel capabilities.\n")
+
+    # General recommendations
+    sections.append("### Migration Strategy\n")
+    sections.append("1.  **Phase 1:** Create dimension tables and populate with deduplicated data")
+    sections.append("2.  **Phase 2:** Build fact table with foreign key references")
+    sections.append("3.  **Phase 3:** Implement partitioning and optimize file formats")
+    sections.append("4.  **Phase 4:** Create summary/aggregate tables for common queries")
+    sections.append("5.  **Phase 5:** Validate performance and gradually migrate workload\n")
+
+    # Expected improvements
+    sections.append("### Expected Performance Improvements\n")
+    sections.append("*   **Query Performance:** 30-70% improvement for aggregation queries")
+    sections.append("*   **Storage Efficiency:** 40-60% reduction with columnar format and compression")
+    sections.append("*   **Maintenance:** Simplified schema updates and easier data quality enforcement")
+    sections.append("*   **Scalability:** Better performance scaling with data volume growth\n")
+
+    return "\n".join(sections)
+
+
+# ========== Keep all existing functions unchanged ==========
+
 def create_summary_tables(optimization_report: Dict) -> Dict[str, pd.DataFrame]:
     """Создает таблицы для удобного просмотра"""
-
-    # 1. Таблица узких мест производительности
     bottlenecks_data = []
     for bottleneck in optimization_report.get('performance_bottlenecks', []):
-        for detail in bottleneck.get('details', [])[:3]:  # Топ 3 из каждой категории
+        for detail in bottleneck.get('details', [])[:3]:
             bottlenecks_data.append({
                 'Issue_Type': bottleneck['type'],
                 'Severity': bottleneck['severity'],
@@ -369,7 +672,6 @@ def create_summary_tables(optimization_report: Dict) -> Dict[str, pd.DataFrame]:
                 'Impact_Score': detail.get('impact_score', detail.get('total_time', 0))
             })
 
-    # 2. Таблица рекомендаций
     recommendations_data = []
     for i, rec in enumerate(optimization_report.get('recommendations', []), 1):
         recommendations_data.append({
@@ -381,7 +683,6 @@ def create_summary_tables(optimization_report: Dict) -> Dict[str, pd.DataFrame]:
             'Implementation_Effort': rec['effort']
         })
 
-    # 3. Таблица паттернов запросов
     query_patterns = optimization_report.get('query_patterns', {})
     mv_candidates = query_patterns.get('materialized_view_candidates', [])
 
@@ -401,21 +702,10 @@ def create_summary_tables(optimization_report: Dict) -> Dict[str, pd.DataFrame]:
         'materialized_view_candidates': pd.DataFrame(mv_data) if mv_data else pd.DataFrame()
     }
 
-# ========== Insights and Reporting ==========
+
 def create_insights_report(ddl_statements: List[Dict], queries: List[Dict]) -> Dict[str, Any]:
-    """
-    Create comprehensive schema insights report from DDL and queries.
-
-    Args:
-        ddl_statements: List of DDL statement dicts with 'statement' key
-        queries: List of query dicts with 'queryid', 'query', 'runquantity' keys
-
-    Returns:
-        Dict containing detailed schema insights for visualization
-    """
+    """Create comprehensive schema insights report from DDL and queries."""
     parser = DDLParser()
-
-    # Parse tables from DDL
     tables = parser.parse_ddl_statements(ddl_statements)
 
     if not tables:
@@ -437,13 +727,8 @@ def create_insights_report(ddl_statements: List[Dict], queries: List[Dict]) -> D
             }
         }
 
-    # Get schema insights using DDLParser
     schema_insights = parser.get_schema_insights(tables, queries)
-
-    # Get column type distribution
     stats = parser.get_table_stats(tables)
-
-    # Enhance with additional analysis
     data_quality = _analyze_data_quality(tables, queries)
     query_coverage = _analyze_query_coverage(tables, queries)
 
@@ -461,7 +746,7 @@ def create_insights_report(ddl_statements: List[Dict], queries: List[Dict]) -> D
 
 
 def _analyze_data_quality(tables: List, queries: List[Dict]) -> Dict[str, Any]:
-    """Analyze data quality metrics from schema."""
+    """Analyze data quality metrics"""
     if not tables:
         return {
             "nullable_columns_percent": 0,
@@ -470,21 +755,20 @@ def _analyze_data_quality(tables: List, queries: List[Dict]) -> Dict[str, Any]:
             "recommendations": []
         }
 
-    total_columns = sum(len(t.columns) for t in tables)
-    nullable_columns = sum(1 for t in tables for c in t.columns if c.nullable)
+    total_columns = sum(len(t.columns) for t in tables if hasattr(t, 'columns') and t.columns)
+    nullable_columns = sum(1 for t in tables if hasattr(t, 'columns') and t.columns
+                           for c in t.columns if hasattr(c, 'nullable') and c.nullable)
 
     parser = DDLParser()
     tables_without_pk = sum(1 for t in tables if not parser._has_primary_key(t))
 
-    # Check for orphaned tables (not referenced in queries)
     orphaned_tables = 0
-    query_text = ' '.join(q.get('query', '').lower() for q in queries)
+    query_text = ' '.join(q.get('query', '').lower() for q in queries if q.get('query'))
     for table in tables:
-        table_name = table.name.lower()
-        if table_name not in query_text:
+        table_name = getattr(table, 'name', '').lower()
+        if table_name and table_name not in query_text:
             orphaned_tables += 1
 
-    # Generate recommendations
     recommendations = []
     nullable_pct = round((nullable_columns / total_columns * 100), 1) if total_columns > 0 else 0
 
@@ -506,9 +790,8 @@ def _analyze_data_quality(tables: List, queries: List[Dict]) -> Dict[str, Any]:
 
 
 def _analyze_query_coverage(tables: List, queries: List[Dict]) -> Dict[str, Any]:
-    """Analyze which tables are used in queries and how frequently (schema-aware)."""
+    """Analyze table usage in queries"""
     if not queries:
-        # If no queries, return structured empty response
         tbl_names = [t.name for t in tables] if tables else []
         return {
             "table_usage": {name.lower(): 0 for name in tbl_names},
@@ -517,81 +800,64 @@ def _analyze_query_coverage(tables: List, queries: List[Dict]) -> Dict[str, Any]
             "most_queried_count": 0
         }
 
-    # Build a normalized index of known tables from DDL
-    # Each table is referenced by multiple keys: name, schema.name, db.schema.name (if available)
     def normalize(s: str) -> str:
         return re.sub(r'["`]', '', s).strip().lower()
 
-    known_keys = {}  # key -> canonical_name (e.g., 'schema.table' if schema exists else 'table')
+    known_keys = {}
     for t in (tables or []):
         t_name = normalize(getattr(t, 'name', '') or '')
         t_schema = normalize(getattr(t, 'schema', '') or '')
-        # Canonical name
         canon = f"{t_schema}.{t_name}" if t_schema else t_name
-        # Fill index keys for matching
         if t_name:
             known_keys[t_name] = canon
         if t_schema and t_name:
             known_keys[f"{t_schema}.{t_name}"] = canon
-        # Optionally support db.schema.table if DDLParser provides db (often not)
         db = normalize(getattr(t, 'database', '') or '')
         if db and t_schema and t_name:
             known_keys[f"{db}.{t_schema}.{t_name}"] = canon
 
-    # Initialize usage with known tables (from DDL)
     usage = {canon: 0 for canon in set(known_keys.values())}
-
-    # Regex to extract referenced tables after FROM/JOIN (grabs possibly qualified names)
     ref_re = re.compile(r'\b(from|join)\s+([a-zA-Z0-9_\."]+)', re.IGNORECASE)
 
     def all_forms(ref: str) -> List[str]:
-        # Return possible matching keys to look up in known_keys OR for direct inclusion
         ref_norm = normalize(ref)
         parts = [p for p in ref_norm.split('.') if p]
         forms = []
         if parts:
-            # table
             forms.append(parts[-1])
         if len(parts) >= 2:
-            forms.append('.'.join(parts[-2:]))  # schema.table
+            forms.append('.'.join(parts[-2:]))
         if len(parts) >= 3:
-            forms.append('.'.join(parts[-3:]))  # db.schema.table
-        return list(dict.fromkeys(forms))  # dedupe, preserve order
+            forms.append('.'.join(parts[-3:]))
+        return list(dict.fromkeys(forms))
 
     for q in queries:
         text = (q.get('query') or '')
         runq = int(q.get('runquantity', 0) or 0)
         if not text:
             continue
-        # Lower for matching, but keep original to avoid breaking any edge cases
         for _, ref in ref_re.findall(text):
-            # Try match against known tables
             matched = False
             for form in all_forms(ref):
                 if form in known_keys:
                     usage[known_keys[form]] += runq
                     matched = True
                     break
-            # If not matched and we want to show referenced-but-unknown tables, include them
             if not matched:
-                # Use the most specific available (schema.table or table)
                 forms = all_forms(ref)
                 key = forms[1] if len(forms) >= 2 else forms[0] if forms else None
                 if key:
                     usage.setdefault(key, 0)
                     usage[key] += runq
 
-    # Compute unused among known tables (those from DDL only)
     known_canons = set(known_keys.values())
     unused_tables = [k for k in known_canons if usage.get(k, 0) == 0]
 
-    # Identify most queried
     most_queried_table = None
     most_queried_count = 0
     if usage:
         most_queried_table, most_queried_count = max(usage.items(), key=lambda x: x[1])
 
-    # Sort usage descending for nicer display
     usage_sorted = {k: v for k, v in sorted(usage.items(), key=lambda x: x[1], reverse=True)}
 
     return {
@@ -603,18 +869,19 @@ def _analyze_query_coverage(tables: List, queries: List[Dict]) -> Dict[str, Any]
 
 
 def _identify_partitioning_candidates(tables: List) -> List[Dict[str, Any]]:
-    """Identify columns suitable for partitioning."""
+    """Identify partitioning candidates"""
     candidates = []
-
     date_keywords = ['date', 'time', 'year', 'month', 'quarter', 'day', 'timestamp', 'created', 'updated']
 
     for table in tables:
+        if not hasattr(table, 'columns') or not table.columns:
+            continue
+
         table_candidates = []
         for column in table.columns:
-            col_name_lower = column.name.lower()
-            col_type_lower = column.data_type.lower()
+            col_name_lower = getattr(column, 'name', '').lower()
+            col_type_lower = getattr(column, 'data_type', '').lower()
 
-            # Check if column name or type suggests it's date-related
             if any(keyword in col_name_lower for keyword in date_keywords) or 'date' in col_type_lower:
                 table_candidates.append({
                     "column": column.name,
@@ -623,8 +890,9 @@ def _identify_partitioning_candidates(tables: List) -> List[Dict[str, Any]]:
                 })
 
         if table_candidates:
+            table_name = f"{table.schema}.{table.name}" if hasattr(table, 'schema') and table.schema else table.name
             candidates.append({
-                "table": f"{table.schema}.{table.name}" if table.schema else table.name,
+                "table": table_name,
                 "candidates": table_candidates,
                 "recommended_strategy": "RANGE or LIST partitioning by date"
             })
@@ -633,7 +901,7 @@ def _identify_partitioning_candidates(tables: List) -> List[Dict[str, Any]]:
 
 
 def _identify_denormalization_opportunities(tables: List, queries: List[Dict]) -> Dict[str, Any]:
-    """Identify opportunities for denormalization based on query patterns."""
+    """Identify denormalization opportunities"""
     if len(tables) <= 1:
         return {
             "opportunity_level": "low",
@@ -641,7 +909,6 @@ def _identify_denormalization_opportunities(tables: List, queries: List[Dict]) -
             "recommendations": []
         }
 
-    # Count joins in queries
     total_joins = 0
     complex_joins = 0
 
@@ -670,51 +937,3 @@ def _identify_denormalization_opportunities(tables: List, queries: List[Dict]) -
         "complex_join_queries": complex_joins,
         "recommendations": recommendations
     }
-
-
-
-# Пример использования
-if __name__ == "__main__":
-    initial_file = "../data/flights.json"
-    analysis_file = "../backup/analysis_output.json"
-    with open(analysis_file, 'r') as f:
-        analysis_data = json.load(f)
-
-    optimization_report = create_optimization_report(analysis_data)
-    tables = create_summary_tables(optimization_report)
-
-    print("=== DATABASE OPTIMIZATION SUMMARY ===\n")
-
-    print("Executive Summary:")
-    exec_summary = optimization_report['executive_summary']
-    print(f"  Database Size: {exec_summary['database_size']} GB")
-    print(f"  Total Rows: {exec_summary['total_rows']}")
-    print(f"  Critical Issues: {exec_summary['critical_issues']}")
-    print(f"  Optimization Potential: {exec_summary['optimization_potential']}\n")
-
-    print("Performance Bottlenecks:")
-    if not tables['performance_bottlenecks'].empty:
-        print(tables['performance_bottlenecks'].to_string(index=False))
-    else:
-        print("  No critical bottlenecks identified")
-    print()
-
-    print("Optimization Recommendations:")
-    print(tables['optimization_recommendations'].to_string(index=False))
-    print()
-
-    print("Materialized View Candidates:")
-    if not tables['materialized_view_candidates'].empty:
-        print(tables['materialized_view_candidates'].to_string(index=False))
-    else:
-        print("  No suitable candidates identified")
-    print()
-
-    print("Implementation Priority:")
-    for priority in optimization_report['implementation_priority']:
-        print(f"  {priority}")
-
-    with open('../backup/optimization_summary.json', 'w') as f:
-        json.dump(optimization_report, f, indent=2, ensure_ascii=False)
-
-    print(f"\nFull report saved to: optimization_summary.json")

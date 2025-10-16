@@ -104,9 +104,15 @@ class LogEntryResponse(BaseModel):
 class QueryDiff(BaseModel):
     queryid: str
     diff: str
+    original: str
+    optimized: str
+    original_length: int
+    optimized_length: int
+    queryid_match: bool
 
 class QueryDiffResponse(BaseModel):
     diffs: List[QueryDiff]
+    debug_info: Optional[dict] = None
 
 # Internal LLM Models
 
