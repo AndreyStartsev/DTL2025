@@ -102,8 +102,14 @@
                                 <div class="col-md-6">
                                     <label for="modelSelect" class="form-label"><i class="bi bi-robot me-2"></i>Model</label>
                                     <select class="form-select" id="modelSelect" required>
-                                        <option value="meta-llama/llama-4-maverick" selected>LLaMA 4 Maverick</option>
-                                        <option value="openai/gpt-oss-120b">GPT-OSS 120B</option>
+                                        <option value="mistralai/mistral-medium-3.1">Mistral Medium 3.1<span class="model-recommendation">(Best Trade-off)</span></option>
+                                        <option value="meta-llama/llama-4-maverick" selected>LLaMA 4 Maverick<span class="model-recommendation">(Recommended)</span></option>
+                                        <option value="meta-llama/llama-3.3-70b-instruct">LLaMA 3.3 70B</option>
+                                        <option value="qwen/qwen3-coder-30b-a3b-instruct">Qwen3 Coder 30B</option>
+                                        <option value="qwen/qwen3-30b-a3b-instruct-2507">Qwen3 30B (2507)</option>
+                                        <option value="qwen/qwen3-235b-a22b">Qwen3 235B</option>
+                                        <option value="openai/gpt-oss-120b">GPT-OSS 120B<span class="model-recommendation">(Second Best)</span></option>
+                                        <option value="google/gemma-3-27b-it">Gemma 3 27B</option>
                                     </select>
                                 </div>
                             </div>

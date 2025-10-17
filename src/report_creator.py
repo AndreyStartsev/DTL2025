@@ -641,6 +641,9 @@ def _generate_enhanced_markdown_document(analysis_data: Dict, agent_input: Dict,
     # General recommendations
     sections.append("### Migration Strategy\n")
     sections.append("1.  **Phase 1:** Create dimension tables and populate with deduplicated data")
+    sections.append(
+        "    *   ***Clarification:*** In performance-focused strategies like creating a single, wide denormalized table, the data from these dimension tables is merged directly into the main table. In that case, separate `dim_` tables may not be needed in the final optimized schema."
+    )
     sections.append("2.  **Phase 2:** Build fact table with foreign key references")
     sections.append("3.  **Phase 3:** Implement partitioning and optimize file formats")
     sections.append("4.  **Phase 4:** Create summary/aggregate tables for common queries")

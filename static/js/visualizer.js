@@ -63,11 +63,9 @@ function smartSplitColumns(columnsBlock) {
  * scope for a table's column definitions.
  */
 function parseDdl(ddlString) {
-    console.log("Starting DDL Parse...");
     const tables = {};
     const relationships = [];
     if (!ddlString || typeof ddlString !== 'string') {
-        console.error("DDL string is invalid.");
         return { tables, relationships };
     }
 
@@ -124,33 +122,59 @@ function parseDdl(ddlString) {
                 tables[tableName].columns.push({ name: colName, type: colType, attributes });
 
             } else {
-                console.warn(`  [FAIL] Could not parse line: "${line}"`);
+                console.warn(`  [FAIL] Could not parse DDL line: "${line}"`);
             }
         });
         tableStartRegex.lastIndex = endIndex;
     }
-    console.log("--- DDL Parse Complete ---", tables);
     return { tables, relationships };
 }
 
-// --- CORRECTED ---
-// Sanitizes the type string for Mermaid compatibility.
+/**
+ * --- CORRECTED FOR ORIGINAL SCHEMA ---
+ * This function is now more robust and handles different JSON structures for the original schema data.
+ * It also logs the received data structure to the console for easier debugging.
+ */
 function generateMermaidFromSchemaObject(schemaData) {
-    if (!schemaData || !Array.isArray(schemaData.tables) || schemaData.tables.length === 0) return '%% Original schema data not available or is empty.';
+    console.log("Generating Mermaid for ORIGINAL schema. Received data:", JSON.parse(JSON.stringify(schemaData)));
+
+    if (!schemaData || (!Array.isArray(schemaData.tables) && typeof schemaData.tables !== 'object')) {
+        return '%% Original schema data (`schema_overview.tables`) is missing, not an array, or not an object.';
+    }
+
     let mermaidCode = 'erDiagram\n';
-    schemaData.tables.forEach(table => {
+    // Handle if schemaData.tables is an array of table objects OR an object of table objects.
+    const tables = Array.isArray(schemaData.tables) ? schemaData.tables : Object.values(schemaData.tables);
+
+    tables.forEach(table => {
+        if (!table || !table.name) {
+            console.warn("Skipping invalid table entry in original schema data:", table);
+            return;
+        }
+
         const mermaidTableName = table.name.replace(/\./g, '_');
         mermaidCode += `    ${mermaidTableName} {\n`;
-        if (Array.isArray(table.columns)) {
-            table.columns.forEach(col => {
-                const pk = col.is_primary_key ? ' PK' : '', fk = col.is_foreign_key ? ' FK' : '';
-                // Sanitize type: replace spaces and commas with underscores.
+
+        if (table.columns) {
+            // Handle if table.columns is an array OR an object where keys are column names.
+            const cols = Array.isArray(table.columns)
+                ? table.columns
+                : Object.entries(table.columns).map(([name, details]) => ({ ...details, name }));
+
+            cols.forEach(col => {
+                if (!col || !col.name || !col.type) {
+                     console.warn(`Skipping invalid column in table ${table.name}:`, col);
+                    return;
+                }
+                const pk = col.is_primary_key ? ' PK' : '';
+                const fk = col.is_foreign_key ? ' FK' : '';
                 const sanitizedType = (col.type || 'unknown').replace(/[\s,]+/g, '_');
-                mermaidCode += `        ${sanitizedType} ${col.name || 'unnamed'} "${pk}${fk}"\n`;
+                mermaidCode += `        ${sanitizedType} ${col.name} "${(pk + fk).trim()}"\n`;
             });
         }
         mermaidCode += '    }\n';
     });
+
     if (Array.isArray(schemaData.relations)) {
         schemaData.relations.forEach(rel => {
             if (rel.from_table && rel.to_table) mermaidCode += `    ${rel.from_table.replace(/\./g, '_')} ||--|{ ${rel.to_table.replace(/\./g, '_')} : ""\n`;
@@ -159,8 +183,6 @@ function generateMermaidFromSchemaObject(schemaData) {
     return mermaidCode;
 }
 
-// --- CORRECTED ---
-// Sanitizes the type string for Mermaid compatibility.
 function generateMermaidFromDDL(ddlString) {
     if (!ddlString) return '%% No optimized DDL provided.';
     const { tables, relationships } = parseDdl(ddlString);
@@ -171,7 +193,6 @@ function generateMermaidFromDDL(ddlString) {
         mermaidCode += `    ${mermaidTableName} {\n`;
         tables[tableName].columns.forEach(col => {
             const attrs = col.attributes.join(' ').trim();
-            // Sanitize type: replace spaces and commas with underscores.
             const sanitizedType = col.type.replace(/[\s,]+/g, '_');
             mermaidCode += `        ${sanitizedType} ${col.name} ${attrs ? `"${attrs}"` : ''}\n`;
         });
@@ -185,12 +206,6 @@ function generateMermaidFromDDL(ddlString) {
 }
 
 
-/**
- * --- ENHANCED MERMAID RENDERER ---
- * Renders a Mermaid diagram and adds pan/zoom functionality for usability with large schemas.
- * Pan: Click and drag.
- * Zoom: Mouse wheel scroll.
- */
 async function renderMermaidDiagram(containerId, mermaidCode) {
     const container = document.getElementById(containerId);
     if (!container) return;
@@ -206,31 +221,24 @@ async function renderMermaidDiagram(containerId, mermaidCode) {
         const svgEl = container.querySelector('svg');
 
         if (svgEl) {
-            // Set initial size from viewBox to allow CSS scaling and remove fixed height.
             const initialWidth = svgEl.viewBox.baseVal.width;
             svgEl.style.width = `${initialWidth}px`;
             svgEl.removeAttribute('height');
-
-            // --- Pan and Zoom Logic ---
             svgEl.style.cursor = 'grab';
             let isPanning = false;
             let startPoint = { x: 0, y: 0 };
-
             svgEl.addEventListener('mousedown', (e) => {
-                if (e.button !== 0) return; // Only pan on left-click
+                if (e.button !== 0) return;
                 isPanning = true;
                 svgEl.style.cursor = 'grabbing';
                 startPoint = { x: e.clientX, y: e.clientY };
                 e.preventDefault();
             });
-
             const stopPanning = () => {
                 if (!isPanning) return;
                 isPanning = false;
                 svgEl.style.cursor = 'grab';
             };
-
-            // We listen on the container for mousemove/up to allow dragging outside the SVG bounds.
             container.addEventListener('mousemove', (e) => {
                 if (!isPanning) return;
                 e.preventDefault();
@@ -240,25 +248,17 @@ async function renderMermaidDiagram(containerId, mermaidCode) {
             });
             container.addEventListener('mouseup', stopPanning);
             container.addEventListener('mouseleave', stopPanning);
-
             container.addEventListener('wheel', (e) => {
                 e.preventDefault();
                 const scale = e.deltaY < 0 ? 1.15 : 1 / 1.15;
                 const currentWidth = svgEl.getBoundingClientRect().width;
-                const newWidth = Math.max(100, currentWidth * scale); // Add a min width
-
-                // Get mouse position relative to container viewport
+                const newWidth = Math.max(100, currentWidth * scale);
                 const pointX = e.clientX - container.getBoundingClientRect().left;
                 const pointY = e.clientY - container.getBoundingClientRect().top;
-
-                // What percentage of the content is to the left/top of the cursor
                 const scrollXRatio = (container.scrollLeft + pointX) / currentWidth;
                 const scrollYRatio = (container.scrollTop + pointY) / svgEl.getBoundingClientRect().height;
-
                 svgEl.style.width = `${newWidth}px`;
                 const newHeight = svgEl.getBoundingClientRect().height;
-
-                // After zoom, calculate new scroll position to keep cursor point stationary
                 container.scrollLeft = (scrollXRatio * newWidth) - pointX;
                 container.scrollTop = (scrollYRatio * newHeight) - pointY;
             });

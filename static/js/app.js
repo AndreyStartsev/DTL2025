@@ -332,6 +332,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!analysisRes.ok) throw new Error('Failed to load analysis report');
             analysisReportCache = await analysisRes.json();
 
+            // This is just a high-level cache now, not used for the original DDL diagram.
             console.log("Full analysis report cached:", analysisReportCache);
 
         } catch (e) {
@@ -353,7 +354,11 @@ document.addEventListener('DOMContentLoaded', () => {
         tab.addEventListener('shown.bs.tab', async event => handleTabContent(event.target));
     });
 
-    // UPDATED handleTabContent function
+    /**
+     * --- CORRECTED handleTabContent function ---
+     * This function now correctly fetches the original DDL from the /task_info endpoint
+     * for the visualizer tab, instead of relying on the incomplete analysis cache.
+     */
     async function handleTabContent(tabElement) {
         if (!tabElement) return;
         const tabId = tabElement.getAttribute('data-bs-target');
@@ -367,18 +372,40 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             if (tabId === '#visualizer') {
                 if (status === 'DONE') {
-                    // Get original schema from the already-fetched analysis report
-                    const originalSchemaData = analysisReportCache?.raw_report?.schema_overview;
-                    const originalMermaidCode = generateMermaidFromSchemaObject(originalSchemaData);
-                    renderMermaidDiagram('original-schema-viz', originalMermaidCode);
+                    // Use Promise.all to fetch both original and optimized schemas concurrently.
+                    Promise.all([
+                        // Promise for Original Schema from the correct endpoint.
+                        fetch(`/task_info/${currentModalTaskId}`).then(async res => {
+                            if (!res.ok) throw new Error(`Original DDL fetch failed: ${res.statusText}`);
+                            return res.json();
+                        }),
+                        // Promise for Optimized Schema.
+                        fetch(`/getresult?task_id=${currentModalTaskId}`).then(async res => {
+                            if (!res.ok) throw new Error(`Optimized DDL fetch failed: ${res.statusText}`);
+                            return res.json();
+                        })
+                    ]).then(([taskInfoData, resultData]) => {
+                        // --- Process Original Schema ---
+                        if (taskInfoData && taskInfoData.original_input && Array.isArray(taskInfoData.original_input.ddl)) {
+                            // Re-use the robust DDL parser.
+                            const originalDdlString = taskInfoData.original_input.ddl.map(d => d.statement).join(';\n');
+                            const originalMermaidCode = generateMermaidFromDDL(originalDdlString);
+                            renderMermaidDiagram('original-schema-viz', originalMermaidCode);
+                        } else {
+                            throw new Error("Original DDL not found in /task_info response.");
+                        }
 
-                    // Fetch optimized DDL from the result endpoint
-                    const res = await fetch(`/getresult?task_id=${currentModalTaskId}`);
-                    if (!res.ok) throw new Error(`Failed to fetch optimized DDL: ${(await res.json()).detail}`);
-                    const resultData = await res.json();
-                    const optimizedDdlString = resultData.ddl.map(d => d.statement).join(';\n');
-                    const optimizedMermaidCode = generateMermaidFromDDL(optimizedDdlString);
-                    renderMermaidDiagram('optimized-schema-viz', optimizedMermaidCode);
+                        // --- Process Optimized Schema ---
+                        const optimizedDdlString = resultData.ddl.map(d => d.statement).join(';\n');
+                        const optimizedMermaidCode = generateMermaidFromDDL(optimizedDdlString);
+                        renderMermaidDiagram('optimized-schema-viz', optimizedMermaidCode);
+
+                    }).catch(e => {
+                        console.error("Error loading schema visualizer data:", e);
+                        document.getElementById('original-schema-viz').innerHTML = `<div class="alert alert-danger m-2">Error loading diagrams: ${e.message}</div>`;
+                        document.getElementById('optimized-schema-viz').innerHTML = '';
+                    });
+
                 } else {
                     document.getElementById('original-schema-viz').innerHTML = `<div class="alert alert-info m-2">Task is not yet complete. Diagrams will be generated once the task is DONE.</div>`;
                     document.getElementById('optimized-schema-viz').innerHTML = ``;
