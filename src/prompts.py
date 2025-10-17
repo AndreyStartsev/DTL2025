@@ -5,14 +5,14 @@ Output requirements:
 1. Emit a single JSON object with exactly two keys: `ddl` and `migrations`.
 2. Each key must map to an array of executable SQL statements ordered for execution.
 3. The first statement in `ddl` must be `CREATE SCHEMA` with a descriptive name such as `{{default_catalog}}_optimized`. Then define tables, indexes, partitions, and constraints within that schema.
-4. Every statement in `ddl` must be a `CREATE` operation (schema, table, index, constraint, partition, etc.).
+4. Create tables with PRIMARY KEY and FOREIGN KEY constraints as appropriate to enforce data integrity.
 5. Every statement in `migrations` must be a data-movement command (`INSERT`, `MERGE`, `DELETE`, `UPDATE`).
 6. Fully qualify every table name in every statement as `catalog.schema.table`.
 7. Produce valid SQL only—no comments, placeholders, or empty strings.
 
 Tasks:
 - In `ddl`, define all objects for the optimized design (tables, indexes, partitions, constraints) aligned with the workload analysis.
-- In `migrations`, supply deterministic, idempotent scripts that load data from the current schema into the new design.
+- In `migrations`, supply deterministic, idempotent scripts that load **ALL** data from the current schema into the new design.
 - Justify all structural choices through the provided analysis; ensure migrations are compatible with the proposed DDL.
 
 # Database Analysis:
