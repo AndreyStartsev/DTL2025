@@ -22,6 +22,19 @@ Tasks:
 {ddl}
 
 Return only the JSON object.
+
+# Example Output:
+{{
+  "ddl": [
+    "CREATE SCHEMA default_catalog_optimized;",
+    "CREATE TABLE default_catalog_optimized.customers (customer_id INT PRIMARY KEY, name VARCHAR(100), ...);",
+    "... additional DDL statements ..."
+  ],
+  "migrations": [
+    "INSERT INTO default_catalog_optimized.customers (customer_id, name, ...) SELECT customer_id, name, ... FROM default_catalog.public.customers;",
+    "... additional migration statements ..."
+  ]
+}}
 """
 
 

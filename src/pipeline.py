@@ -113,8 +113,14 @@ def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
         opt_response = llm_call_with_so_and_fallback(llm, prompt1, models.DBOptimizationResponse)
         log.success(f"✅ [{task_id}] DDL/Migration generation completed in {time() - start_time:.2f}s")
 
+        ddl_string = "\n".join(opt_response.ddl)
+        log.debug(f"[{task_id}] Optimized DDL from LLM:\n{ddl_string}")
+        migration_string = "\n".join(opt_response.migrations)
+        log.debug(f"[{task_id}] Migration Scripts from LLM:\n{migration_string}")
+
         # Save DDL and migration results to the DB
-        crud.update_task_after_step1(db, task_id, opt_response.ddl, opt_response.migrations)
+        # crud.update_task_after_step1(db, task_id, opt_response.ddl, opt_response.migrations)
+        crud.update_task_after_step1(db, task_id, ddl_string, migration_string)
         log.info(f"[{task_id}] Saved optimized DDL and migrations to database.")
 
         # --- Step 3: Rewrite original queries for the new DDL ---

@@ -117,8 +117,8 @@ class QueryDiffResponse(BaseModel):
 # Internal LLM Models
 
 class DBOptimizationResponse(BaseModel):
-    ddl: str = Field(..., description="The optimized DDL statements")
-    migrations: str = Field(..., description="The data migration scripts")
+    ddl: list[str] = Field(..., description="The optimized DDL statements")
+    migrations: list[str] = Field(..., description="The data migration scripts")
 
 class RewrittenQueries(BaseModel):
     queries: list[str] = Field(..., description="List of rewritten SQL queries")

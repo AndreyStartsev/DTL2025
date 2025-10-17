@@ -91,7 +91,7 @@ def create_analysis_report(
 
 
     from loguru import logger
-    logger.info(f"🟢🟢🟢🟢🟢 {schema_overview_data}")
+    # logger.info(f"🟢🟢🟢🟢🟢 {schema_overview_data}")
 
     # Fallback to old schema_insights if schema_overview doesn't exist
     if not schema_overview_data or isinstance(schema_overview_data, str):
