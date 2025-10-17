@@ -7,7 +7,7 @@ from src import models
 def get_task(db: Session, task_id: str):
     return db.query(models.Task).filter(models.Task.id == task_id).first()
 
-def get_tasks(db: Session, skip: int = 0, limit: int = 20, status: str = None):
+def get_tasks(db: Session, skip: int = 0, limit: int = 50, status: str = None):
     query = db.query(models.Task)
     if status:
         query = query.filter(models.Task.status == status)

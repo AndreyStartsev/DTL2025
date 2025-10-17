@@ -1,16 +1,19 @@
 PROMPT_STEP1 = """
-You are an expert Database Performance Engineer. Your task is to analyze a database info to recommend performance optimizations.
+You are an expert Database Performance Engineer. Using the supplied database analysis and existing DDL, design an optimized schema and the SQL needed to populate it.
 
-Based on the analysis, you will propose a new schema and data migration scripts.
+Output requirements:
+1. Emit a single JSON object with exactly two keys: `ddl` and `migrations`.
+2. Each key must map to an array of executable SQL statements ordered for execution.
+3. The first statement in `ddl` must be `CREATE SCHEMA` with a descriptive name such as `{{default_catalog}}_optimized`. Then define tables, indexes, partitions, and constraints within that schema.
+4. Every statement in `ddl` must be a `CREATE` operation (schema, table, index, constraint, partition, etc.).
+5. Every statement in `migrations` must be a data-movement command (`INSERT`, `MERGE`, `DELETE`, `UPDATE`).
+6. Fully qualify every table name in every statement as `catalog.schema.table`.
+7. Produce valid SQL only—no comments, placeholders, or empty strings.
 
-**Constraint Checklist:**
-1.  Your ENTIRE output must be a single, valid JSON object.
-2.  The JSON must have two top-level keys: `ddl`, `migrations`.
-3.  The first DDL statement **MUST** be `CREATE SCHEMA`. Use a new, descriptive schema name like `{{default_catalog}}_optimized`.
-4.  All table names in all generated SQL statements (DDL, migrations) **MUST** be fully qualified: `catalog.schema.table`.
-
-Based on all the information above, provide an optimization plan. 
-Generate the necessary SQL scripts to perform this optimization, following all constraints.
+Tasks:
+- In `ddl`, define all objects for the optimized design (tables, indexes, partitions, constraints) aligned with the workload analysis.
+- In `migrations`, supply deterministic, idempotent scripts that load data from the current schema into the new design.
+- Justify all structural choices through the provided analysis; ensure migrations are compatible with the proposed DDL.
 
 # Database Analysis:
 {db_analysis}
@@ -18,24 +21,23 @@ Generate the necessary SQL scripts to perform this optimization, following all c
 # Existing DDL:
 {ddl}
 
-Return ONLY the JSON object with optimized DDL and migration script, without any additional text or explanation.
-    """
+Return only the JSON object.
+"""
 
 
 PROMPT_STEP2 = """
-You are an expert Database Performance Engineer. Your task is to rewrite old SQL queries to work with a new optimized database schema.
-You will be provided with:
-1. The original SQL queries.
-2. The original database schema (DDL).
-3. The new optimized database schema (DDL).
+You are an expert Database Performance Engineer. Rewrite each legacy SQL query so it runs correctly against the new optimized schema while preserving its original intent.
 
-**Constraint Checklist:**
-1.  Your ENTIRE output must be a single, valid JSON object.
-2.  The JSON must have a single top-level key: `queries`.
-3.  The value of `queries` must be a list of rewritten SQL queries.
-4.  Each rewritten SQL query must be syntactically correct and compatible with the new schema.
+Output requirements:
+1. Return exactly one JSON object with the top-level key `queries`.
+2. `queries` must be an array of rewritten SQL strings in the same order as the originals.
+3. Every SQL string must be syntactically valid for the target platform—no comments, placeholders, or explanatory text.
 
-Based on the information provided, rewrite the original SQL queries to be compatible with the new optimized schema.
+Rewriting rules:
+- Maintain query semantics; adjust joins, filters, projections, and aggregations to mirror the original results.
+- Target only objects defined in the new optimized DDL, using fully qualified names (`catalog.schema.table`) where required.
+- Update column references, aliases, grouping, and ordering to align with the new schema structure.
+- Ensure the output queries are ready to execute without additional modification.
 
 # Original Queries:
 {original_queries}
@@ -45,5 +47,4 @@ Based on the information provided, rewrite the original SQL queries to be compat
 
 # New Optimized DDL:
 {new_ddl}
-
-    """
+"""

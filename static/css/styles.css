@@ -544,3 +544,121 @@ code.inline {
     opacity: 0.5;
     cursor: not-allowed;
 }
+/* Custom Application Styles */
+
+.status-badge {
+    min-width: 70px;
+    text-align: center;
+}
+
+.kpi-card .icon-wrap {
+    font-size: 2rem;
+    color: var(--bs-secondary);
+}
+
+.log-row {
+    font-family: var(--bs-font-monospace);
+    font-size: 0.875rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    margin-bottom: 2px;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+.log-row .log-time {
+    color: var(--bs-gray-500);
+    margin-right: 1rem;
+}
+.log-row .log-level-badge {
+    display: inline-block;
+    padding: 0.1em 0.5em;
+    font-size: 0.75rem;
+    border-radius: 0.25rem;
+    margin-right: 1rem;
+    color: #fff;
+    min-width: 70px;
+    text-align: center;
+}
+
+.log-row.info .log-level-badge { background-color: var(--bs-info-bg-subtle); color: var(--bs-info-text-emphasis); }
+.log-row.warning .log-level-badge { background-color: var(--bs-warning-bg-subtle); color: var(--bs-warning-text-emphasis); }
+.log-row.error .log-level-badge { background-color: var(--bs-danger-bg-subtle); color: var(--bs-danger-text-emphasis); }
+.log-row.success .log-level-badge { background-color: var(--bs-success-bg-subtle); color: var(--bs-success-text-emphasis); }
+
+.query-comparison .query-id {
+    font-size: 0.8rem;
+    background-color: var(--bs-tertiary-bg);
+}
+
+.query-panel { border: 1px solid var(--bs-border-color); border-radius: 0.375rem; margin-top: 1rem;}
+
+/* Custom Application Styles */
+
+.status-badge {
+    min-width: 70px;
+    text-align: center;
+}
+
+.kpi-card .icon-wrap {
+    font-size: 2rem;
+    color: var(--bs-secondary);
+}
+
+.log-row {
+    font-family: var(--bs-font-monospace);
+    font-size: 0.875rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    margin-bottom: 2px;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+.log-row .log-time {
+    color: var(--bs-gray-500);
+    margin-right: 1rem;
+}
+.log-row .log-level-badge {
+    display: inline-block;
+    padding: 0.1em 0.5em;
+    font-size: 0.75rem;
+    border-radius: 0.25rem;
+    margin-right: 1rem;
+    color: #fff;
+    min-width: 70px;
+    text-align: center;
+}
+
+.log-row.info .log-level-badge { background-color: var(--bs-info-bg-subtle); color: var(--bs-info-text-emphasis); }
+.log-row.warning .log-level-badge { background-color: var(--bs-warning-bg-subtle); color: var(--bs-warning-text-emphasis); }
+.log-row.error .log-level-badge { background-color: var(--bs-danger-bg-subtle); color: var(--bs-danger-text-emphasis); }
+.log-row.success .log-level-badge { background-color: var(--bs-success-bg-subtle); color: var(--bs-success-text-emphasis); }
+
+.query-comparison .query-id {
+    font-size: 0.8rem;
+    background-color: var(--bs-tertiary-bg);
+}
+
+.query-panel { border: 1px solid var(--bs-border-color); border-radius: 0.375rem; margin-top: 1rem;}
+.query-panel-header { background-color: var(--bs-tertiary-bg); padding: 0.5rem 1rem; font-weight: 500;}
+.query-panel-body { padding: 0.5rem; }
+.sql-code { margin: 0; background: none; }
+
+.model-recommendation {
+  color: var(--bs-secondary-color);
+  font-size: 0.85em;
+  font-style: italic;
+  margin-left: 0.5em;
+}
+
+/* NEW: Styles for Mermaid ERD readability */
+.mermaid-container {
+    padding: 1rem;
+    background-color: var(--bs-tertiary-bg); /* A slightly different background */
+    border-radius: 0.375rem;
+    overflow-x: auto; /* Allow horizontal scrolling for very wide diagrams */
+}
+
+.mermaid-container svg {
+    max-width: 100%; /* Ensures SVG scales down on smaller screens */
+    height: auto;
+}
