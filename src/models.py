@@ -116,6 +116,19 @@ class QueryDiffResponse(BaseModel):
 
 # Internal LLM Models
 
+class DBRecomendationResponse(BaseModel):
+    """
+- `schema_issues`: Schema design issues (e.g., normalization problems, indexing gaps). Data distribution, denormalization, and partitioning concerns
+- `query_issues`: Query performance problems (e.g., slow joins, missing filters)
+- `schema_actions`: Actionable recommendations for optimization with specific examples of tables to denormalize, indexes to add, partitions to create.
+- `query_actions`: Actionable recommendations for specific query rewrites or patterns to improve performance.
+
+    """
+    schema_issues: Optional[str] = Field(None, description="Schema design issues")
+    query_issues: Optional[str] = Field(None, description="Query performance problems")
+    schema_actions: Optional[str] = Field(None, description="Actionable recommendations for schema optimization with examples")
+    query_actions: Optional[str] = Field(None, description="Actionable recommendations for query optimization with examples")
+
 class DBOptimizationResponse(BaseModel):
     catalog_name: Optional[str] = Field(None, description="The name of the Trino database catalog, defined from the original DDL")
     ddl: list[str] = Field(..., description="The optimized DDL statements")

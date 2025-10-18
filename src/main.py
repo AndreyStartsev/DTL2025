@@ -344,6 +344,7 @@ def list_tasks(
         ),
         skip: int = Query(0, ge=0, description="Number of tasks to skip for pagination"),
         limit: int = Query(20, ge=1, le=100, description="Maximum number of tasks to return"),
+        order: str = Query("newest", description="Order of tasks by submission time", enum=["newest", "oldest"]),
         db: Session = Depends(get_db)
 ):
     """
@@ -351,7 +352,10 @@ def list_tasks(
 
     Useful for monitoring multiple tasks or reviewing historical optimizations.
     """
-    tasks = crud.get_tasks(db, skip=skip, limit=limit, status=status)
+    if order == "newest":
+        tasks = crud.get_tasks_with_newest_first(db, skip=skip, limit=limit, status=status)
+    else:
+        tasks = crud.get_tasks(db, skip=skip, limit=limit, status=status)
     return [
         {
             "taskid": t.id,

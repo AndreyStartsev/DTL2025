@@ -13,6 +13,12 @@ def get_tasks(db: Session, skip: int = 0, limit: int = 50, status: str = None):
         query = query.filter(models.Task.status == status)
     return query.offset(skip).limit(limit).all()
 
+def get_tasks_with_newest_first(db: Session, skip: int = 0, limit: int = 50, status: str = None):
+    query = db.query(models.Task)
+    if status:
+        query = query.filter(models.Task.status == status)
+    return query.order_by(models.Task.submitted_at.desc()).offset(skip).limit(limit).all()
+
 def create_task(db: Session, task_id: str, request_data: models.NewTaskRequest):
     db_task = models.Task(
         id=task_id,

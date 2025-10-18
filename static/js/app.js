@@ -15,6 +15,12 @@ let currentModalTaskId = null;
 let loadedTabs = new Set();
 let analysisReportCache = null;
 
+// Pagination state
+let currentPage = 0;
+let pageSize = 20;
+let sortOrder = 'newest'; // 'newest' or 'oldest'
+let totalTasks = 0;
+
 // ============================================================================
 // Task Timing and Status
 // ============================================================================
@@ -91,6 +97,43 @@ function getStatusBadge(status) {
 }
 
 // ============================================================================
+// Pagination
+// ============================================================================
+
+function updatePaginationInfo(tasks) {
+    const paginationInfo = document.getElementById('paginationInfo');
+    const prevPageBtn = document.getElementById('prevPageBtn');
+    const nextPageBtn = document.getElementById('nextPageBtn');
+
+    const start = tasks.length > 0 ? (currentPage * pageSize + 1) : 0;
+    const end = Math.min((currentPage + 1) * pageSize, currentPage * pageSize + tasks.length);
+
+    // Update info text
+    paginationInfo.textContent = `Showing ${start}-${end} of ${totalTasks}+ tasks`;
+
+    // Update button states
+    prevPageBtn.disabled = currentPage === 0;
+    nextPageBtn.disabled = tasks.length < pageSize;
+}
+
+function goToPage(page) {
+    currentPage = Math.max(0, page);
+    fetchTasks(currentFilter);
+}
+
+function changePageSize(newSize) {
+    pageSize = newSize;
+    currentPage = 0; // Reset to first page
+    fetchTasks(currentFilter);
+}
+
+function changeSortOrder(order) {
+    sortOrder = order;
+    currentPage = 0; // Reset to first page
+    fetchTasks(currentFilter);
+}
+
+// ============================================================================
 // Task List Management
 // ============================================================================
 
@@ -102,8 +145,18 @@ async function fetchTasks(status = '') {
     taskTableBody.innerHTML = '';
 
     try {
-        const response = await fetch(`/tasks?status=${status}`);
+        const skip = currentPage * pageSize;
+        const response = await fetch(`/tasks?status=${status}&skip=${skip}&limit=${pageSize}&order=${sortOrder}`);
         const tasks = await response.json();
+
+        // Update total count (approximate based on current page)
+        if (tasks.length === pageSize) {
+            totalTasks = (currentPage + 1) * pageSize; // At least this many
+        } else {
+            totalTasks = currentPage * pageSize + tasks.length;
+        }
+
+        updatePaginationInfo(tasks);
 
         if (tasks.length === 0) {
             taskTableBody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">No tasks found.</td></tr>`;
@@ -150,6 +203,14 @@ async function deleteTask(taskId) {
     try {
         const response = await fetch(`/task/${taskId}`, { method: 'DELETE' });
         if (response.ok) {
+            // If we delete the last item on a page, go back one page
+            const taskTableBody = document.getElementById('task-table-body');
+            const remainingRows = taskTableBody.querySelectorAll('tr').length - 1;
+
+            if (remainingRows === 0 && currentPage > 0) {
+                currentPage--;
+            }
+
             fetchTasks(currentFilter);
         } else {
             alert('Failed to delete task.');
@@ -248,13 +309,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // Get DOM elements
     const refreshButton = document.getElementById('refreshButton');
     const filterButtons = document.querySelectorAll('#statusFilters button');
-    const createTaskForm = document.getElementById('createTaskForm');
-    const createSubmitBtn = document.getElementById('createSubmitBtn');
-    const createSpinner = document.getElementById('createSpinner');
-    const createError = document.getElementById('createError');
     const taskTableBody = document.getElementById('task-table-body');
     const detailModal = document.getElementById('detailModal');
     const statsModal = document.getElementById('statsModal');
+    const prevPageBtn = document.getElementById('prevPageBtn');
+    const nextPageBtn = document.getElementById('nextPageBtn');
+    const pageSizeSelect = document.getElementById('pageSizeSelect');
+    const sortOrderSelect = document.getElementById('sortOrderSelect');
 
     // ============================================================================
     // Event Listeners - Task List
@@ -267,6 +328,7 @@ document.addEventListener('DOMContentLoaded', () => {
             filterButtons.forEach(btn => btn.classList.remove('active'));
             button.classList.add('active');
             currentFilter = button.dataset.status;
+            currentPage = 0; // Reset to first page when filter changes
             fetchTasks(currentFilter);
         });
     });
@@ -279,52 +341,30 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // ============================================================================
-    // Event Listeners - Create Task Form
+    // Event Listeners - Pagination
     // ============================================================================
 
-    createTaskForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        createSubmitBtn.disabled = true;
-        createSpinner.classList.remove('d-none');
-        createError.classList.add('d-none');
+    prevPageBtn.addEventListener('click', () => goToPage(currentPage - 1));
+    nextPageBtn.addEventListener('click', () => goToPage(currentPage + 1));
 
-        try {
-            const data = JSON.parse(document.getElementById('taskDataJson').value);
-            if (!data.url || !data.ddl || !data.queries) {
-                throw new Error('The JSON data must include "url", "ddl", and "queries" keys.');
-            }
+    pageSizeSelect.addEventListener('change', (e) => {
+        changePageSize(parseInt(e.target.value));
+    });
 
-            const payload = {
-                ...data,
-                config: {
-                    strategy: document.getElementById('strategySelect').value,
-                    model_id: document.getElementById('modelSelect').value,
-                    context_length: 16000,
-                    batch_size: 5
-                }
-            };
+    if (sortOrderSelect) {
+        sortOrderSelect.addEventListener('change', (e) => {
+            changeSortOrder(e.target.value);
+        });
+    }
 
-            const response = await fetch('/new', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
+    // ============================================================================
+    // Initialize Create Task Form
+    // ============================================================================
 
-            if (response.ok) {
-                bootstrap.Modal.getInstance(document.getElementById('createTaskModal')).hide();
-                createTaskForm.reset();
-                fetchTasks(currentFilter);
-            } else {
-                const errorData = await response.json();
-                throw new Error(errorData.detail || 'Failed to create task.');
-            }
-        } catch (error) {
-            createError.textContent = `Error: ${error.message}`;
-            createError.classList.remove('d-none');
-        } finally {
-            createSubmitBtn.disabled = false;
-            createSpinner.classList.add('d-none');
-        }
+    initializeCreateTaskForm(() => {
+        // Callback on successful task creation - go to first page to see new task
+        currentPage = 0;
+        fetchTasks(currentFilter);
     });
 
     // ============================================================================

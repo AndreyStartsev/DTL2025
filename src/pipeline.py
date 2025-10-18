@@ -5,7 +5,7 @@ from dotenv import load_dotenv, find_dotenv
 from loguru import logger
 from sqlalchemy.orm import Session
 
-from src.prompts import PROMPT_STEP1, PROMPT_STEP2
+from src.prompts import PROMPT_STEP0, PROMPT_STEP1, PROMPT_STEP2
 from src.analyzer import DataAnalyzer
 from src.database import SessionLocal
 from src import crud, models
@@ -56,10 +56,11 @@ def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
 
         # Prepare DDL and Queries as simple strings for prompts
         ddl_str = ";\n".join([item['statement'] for item in input_dict.get('ddl', [])])
-        queries_str = "\n---\n".join([
+        queries_stats = "\n---\n".join([
             f"-- Query ID: {q['queryid']}\n-- Runs: {q['runquantity']}\n{q['query']};"
             for q in input_dict.get('queries', [])
         ])
+        queries_str = "\n".join([q['query'] + ";" for q in input_dict.get('queries', [])])
 
         # --- Step 1: Analyze DB structure ---
         log.info(f"[{task_id}] Performing initial data analysis...")
@@ -94,18 +95,34 @@ def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
             # As a fallback, save the raw string inside a dictionary
             crud.update_task_with_analysis(db, task_id, {"raw_report": db_analysis_report})
 
+        db_expert_input = db_analysis_report.get('expert_document', db_analysis_report)
+
         # --- Step 2: Generate new DDL & Migrations ---
-        # remove schema_overview from report and agent input before passing to LLM
-        # db_agent_input = db_analysis_report.copy()
-        # db_agent_input.pop('schema_overview', None)
-        # db_agent_input.pop('agent_input', None)
+        strategy = "" if config.strategy == "balanced" else \
+            f"Main focus is {config.strategy.replace('_', ' ')} optimization."
+        prompt0 = PROMPT_STEP0.format(
+            db_analysis=db_expert_input,
+            ddl=ddl_str,
+            queries_stats=queries_stats,
+            strategy=strategy
+        )
+        log.info(f"[{task_id}] Calling LLM ({config.model_id}) for expert review...")
+        start_time = time()
+        expert_response = llm_call_with_so_and_fallback(llm, prompt0, models.DBRecomendationResponse)
+        log.success(f"✅ [{task_id}] Expert review completed in {time() - start_time:.2f}s")
+        log.info(f"✎ [{task_id}] {expert_response.model_dump_json(indent=2)}")
+        schema_issues = expert_response.schema_issues
+        schema_actions = expert_response.schema_actions
+        query_issues = expert_response.query_issues
+        query_actions = expert_response.query_actions
 
         db_agent_input = db_analysis_report.get('design_document', db_analysis_report)
         log.debug(f"[{task_id}] Agent Input for LLM: {db_agent_input}")
         prompt1 = PROMPT_STEP1.format(
             db_analysis=db_agent_input,
             ddl=ddl_str,
-            strategy=config.strategy
+            schema_issues=schema_issues,
+            schema_actions=schema_actions,
         )
 
         log.info(f"[{task_id}] Calling LLM ({config.model_id}) for DDL and migration optimization...")
@@ -132,7 +149,7 @@ def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
             original_queries=queries_str,
             original_ddl=ddl_str,
             new_ddl=opt_response.ddl,
-            migration_ddl=migration_string
+            query_actions=query_actions
         )
 
         BATCH_SIZE = config.batch_size  # Define a batch size for processing queries
@@ -164,13 +181,14 @@ def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
                 batch_prompt = PROMPT_STEP2.format(
                     original_queries=batch_queries_str,
                     original_ddl=ddl_str,
-                    migration_ddl=migration_string,
-                    new_ddl=opt_response.ddl
+                    new_ddl=opt_response.ddl,
+                    query_actions=query_actions
+
                 ) + f"\n\n**IMPORTANT**: You must return EXACTLY {batch_size} rewritten queries, one for each query in this batch."
 
                 batch_response = llm_call_with_so_and_fallback(llm, batch_prompt, models.RewrittenQueries)
-                log.debug(f"[{task_id}] ⚠️⚠️⚠️⚠️⚠️ Schema change: {batch_response.old_schema_name} -> {batch_response.schema_name}")
-                log.debug(f"[{task_id}] Rewritten Queries in Batch {batch_num}: {batch_response.queries}")
+                # log.debug(f"[{task_id}] Schema change: {batch_response.old_schema_name} -> {batch_response.schema_name}")
+                # log.debug(f"[{task_id}] Rewritten Queries in Batch {batch_num}: {batch_response.queries}")
 
                 # VALIDATION: Check batch response count
                 if len(batch_response.queries) != batch_size:
