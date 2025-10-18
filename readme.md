@@ -4,6 +4,8 @@ FastAPI-сервис для автоматического анализа и о�
 
 ![llama icon](./images/icon_sm.png)     Powered by **Llama 4 Maverick**
 
+![trino icon](./images/trino_sm.png)    Designed specifically for **Trino**
+
 ----
 ▶️ Демо находится [здесь](http://35.91.63.139)
 
@@ -43,7 +45,7 @@ curl -X POST "http://35.91.63.139/new" \
 
 ## Архитектура
 
-![Архитектура сервиса](./images/architecture.svg)
+![Архитектура сервиса](./images/architecture.png)
 
 ### Поток запросов
 

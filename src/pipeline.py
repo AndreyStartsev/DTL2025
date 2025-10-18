@@ -80,7 +80,6 @@ def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
             db_analysis_report['schema_overview'] = db_insights_report_dict
             log.success(f"✅ [{task_id}] DB analysis completed in {time() - start_time:.2f}s")
         except Exception as e:
-            raise e
             log.error(f"[{task_id}] Analysis failed, falling back to offline analysis: {e}", exc_info=True)
             db_analysis_report = fallback_analysis(input_dict.get('queries', []))
             log.success(f"✅ [{task_id}] Fallback DB analysis completed in {time() - start_time:.2f}s")
@@ -236,7 +235,6 @@ def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
         log.success(f"Task {task_id} finished successfully.")
 
     except Exception as e:
-        raise e
         log.error(f"Task {task_id} failed: {str(e)}", exc_info=True)
         crud.update_task_status(db, task_id, "FAILED", {"error": str(e)})
     finally:

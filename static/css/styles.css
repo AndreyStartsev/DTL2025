@@ -933,10 +933,10 @@ code.inline {
     border-color: rgba(244, 67, 54, 0.3) !important;
 }
 
-/* LLaMA - Electric Green */
+/* LLaMA - Electric Violet */
 .model-badge-llama {
-    color: #4caf50 !important;
-    border-color: rgba(76, 175, 80, 0.3) !important;
+    color: #7c4dff !important;
+    border-color: rgba(124, 77, 255, 0.3) !important;
 }
 
 /* Mistral - Electric Magenta */
@@ -985,8 +985,8 @@ code.inline {
 }
 
 .model-badge-llama:hover {
-    box-shadow: 0 0 12px rgba(76, 175, 80, 0.5);
-    border-color: rgba(76, 175, 80, 0.6) !important;
+    box-shadow: 0 0 12px rgba(124, 77, 255, 0.5);
+    border-color: rgba(124, 77, 255, 0.6) !important;
 }
 
 .model-badge-mistral:hover {
