@@ -67,8 +67,8 @@ class QueryStatement(BaseModel):
 class TaskConfig(BaseModel):
     strategy: str = Field("balanced", description="Optimization strategy: 'read_optimized', 'write_optimized', 'balanced', 'storage_optimized'")
     model_id: str = Field("meta-llama/llama-4-maverick", description="The model ID to use from OpenRouter")
-    context_length: Optional[int] = Field(10000, description="Optional context length for the model")
-    batch_size: Optional[int] = Field(15, description="Optional batch size for processing queries")
+    context_length: Optional[int] = Field(16000, description="Optional context length for the model")
+    batch_size: Optional[int] = Field(5, description="Optional batch size for processing queries")
 
 class NewTaskRequest(BaseModel):
     url: str
@@ -117,8 +117,12 @@ class QueryDiffResponse(BaseModel):
 # Internal LLM Models
 
 class DBOptimizationResponse(BaseModel):
+    catalog_name: Optional[str] = Field(None, description="The name of the Trino database catalog, defined from the original DDL")
     ddl: list[str] = Field(..., description="The optimized DDL statements")
     migrations: list[str] = Field(..., description="The data migration scripts")
+    design_note: Optional[str] = Field(None, description="Optional design note explaining the optimization choices")
 
 class RewrittenQueries(BaseModel):
+    old_schema_name: Optional[str] = Field(None, description="The name of the ORIGINAL Trino database schema in the format of <catalog>.<schema>, used with FROM and JOIN clauses")
+    schema_name: Optional[str] = Field(None, description="The name of the NEW Trino database schema in the format of <catalog>.<schema> to be used with FROM and JOIN clauses")
     queries: list[str] = Field(..., description="List of rewritten SQL queries")

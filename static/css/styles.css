@@ -662,3 +662,32 @@ code.inline {
     max-width: 100%; /* Ensures SVG scales down on smaller screens */
     height: auto;
 }
+
+
+
+/* Result section styling */
+.result-section {
+    border-left: 3px solid var(--bs-primary);
+    padding-left: 1rem;
+}
+
+.result-section-title {
+    color: var(--bs-primary);
+    margin-bottom: 1rem;
+    font-weight: 600;
+}
+
+.result-section pre {
+    background-color: var(--bs-dark);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.375rem;
+    padding: 1rem;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+/* Log entries container (minimal wrapper) */
+.log-entries-container {
+    max-height: 600px;
+    overflow-y: auto;
+}

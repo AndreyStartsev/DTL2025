@@ -51,7 +51,7 @@ def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
         config = request_data.config
 
         # --- Step 0: Initial setup ---
-        llm = get_llm(model_name=config.model_id)
+        llm = get_llm(model_name=config.model_id, max_tokens=config.context_length)
         input_dict = request_data.model_dump()
 
         # Prepare DDL and Queries as simple strings for prompts
@@ -118,6 +118,8 @@ def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
         migration_string = "\n".join(opt_response.migrations)
         log.debug(f"[{task_id}] Migration Scripts from LLM:\n{migration_string}")
 
+        log.info(f"✎ [{task_id}] {opt_response.design_note}")
+
         # Save DDL and migration results to the DB
         # crud.update_task_after_step1(db, task_id, opt_response.ddl, opt_response.migrations)
         crud.update_task_after_step1(db, task_id, ddl_string, migration_string)
@@ -129,10 +131,11 @@ def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
         prompt2 = PROMPT_STEP2.format(
             original_queries=queries_str,
             original_ddl=ddl_str,
-            new_ddl=opt_response.ddl
+            new_ddl=opt_response.ddl,
+            migration_ddl=migration_string
         )
 
-        BATCH_SIZE = 10  # Define a batch size for processing queries
+        BATCH_SIZE = config.batch_size  # Define a batch size for processing queries
         queries_list = input_dict.get('queries', [])
         total_queries = len(queries_list)
 
@@ -161,10 +164,13 @@ def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
                 batch_prompt = PROMPT_STEP2.format(
                     original_queries=batch_queries_str,
                     original_ddl=ddl_str,
+                    migration_ddl=migration_string,
                     new_ddl=opt_response.ddl
                 ) + f"\n\n**IMPORTANT**: You must return EXACTLY {batch_size} rewritten queries, one for each query in this batch."
 
                 batch_response = llm_call_with_so_and_fallback(llm, batch_prompt, models.RewrittenQueries)
+                log.debug(f"[{task_id}] ⚠️⚠️⚠️⚠️⚠️ Schema change: {batch_response.old_schema_name} -> {batch_response.schema_name}")
+                log.debug(f"[{task_id}] Rewritten Queries in Batch {batch_num}: {batch_response.queries}")
 
                 # VALIDATION: Check batch response count
                 if len(batch_response.queries) != batch_size:
