@@ -95,6 +95,7 @@ class TaskSummary(BaseModel):
     status: str
     submitted_at: datetime.datetime
     completed_at: Optional[str] = None
+    model_id: Optional[str] = None
 
 class LogEntryResponse(BaseModel):
     timestamp: datetime.datetime

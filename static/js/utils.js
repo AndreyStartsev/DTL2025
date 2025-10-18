@@ -154,3 +154,58 @@ function renderLogs(logs) {
     }).join('');
     container.innerHTML = rows;
 }
+
+/**
+ * Format model name for display
+ * @param {string} modelId - Full model identifier (e.g., "meta-llama/llama-4-maverick")
+ * @returns {string} Formatted model name with badge
+ */
+function formatModelName(modelId) {
+    if (!modelId) {
+        return '<span class="text-muted">—</span>';
+    }
+
+    // Extract provider and model name
+    const parts = modelId.split('/');
+    const provider = parts[0] || '';
+    const modelName = parts[1] || modelId;
+
+    // Shorten common model names
+    const shortNames = {
+        'llama-4-maverick': 'LLaMA 4 Maverick',
+        'llama-3.3-70b-instruct': 'LLaMA 3.3 70B',
+        'mistral-medium-3.1': 'Mistral Medium',
+        'qwen3-coder-30b-a3b-instruct': 'Qwen3 Coder',
+        'qwen3-30b-a3b-instruct-2507': 'Qwen3 30B',
+        'qwen3-235b-a22b': 'Qwen3 235B',
+        'gpt-oss-120b': 'GPT-OSS 120B',
+        'gpt-4.1': 'GPT-4.1',
+        'gemini-2.5-flash': 'Gemini 2.5 Flash',
+        'gemma-3-27b-it': 'Gemma 3 27B'
+    };
+
+    const displayName = shortNames[modelName] || modelName;
+
+    // Determine badge color based on provider and model name
+    let badgeColor;
+
+    if (modelId.includes('gemini')) {
+        badgeColor = 'gemini'; // Dark blue
+    } else if (modelId.includes('gemma')) {
+        badgeColor = 'gemma'; // Light blue
+    } else if (modelId.includes('gpt-oss')) {
+        badgeColor = 'gpt-oss'; // Light green
+    } else if (provider === 'openai') {
+        badgeColor = 'gpt'; // Dark green
+    } else if (provider === 'qwen') {
+        badgeColor = 'qwen'; // Red
+    } else if (provider === 'meta-llama') {
+        badgeColor = 'llama'; // Orange
+    } else if (provider === 'mistralai') {
+        badgeColor = 'mistral'; // Magenta
+    } else {
+        badgeColor = 'default'; // Gray
+    }
+
+    return `<span class="badge model-badge model-badge-${badgeColor}" data-bs-toggle="tooltip" data-bs-placement="top" title="${modelId}"><i class="bi bi-robot me-1"></i>${displayName}</span>`;
+}

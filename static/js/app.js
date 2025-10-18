@@ -149,9 +149,11 @@ async function fetchTasks(status = '') {
         const response = await fetch(`/tasks?status=${status}&skip=${skip}&limit=${pageSize}&order=${sortOrder}`);
         const tasks = await response.json();
 
+        console.log('Fetched tasks:', tasks); // DEBUG: Log all tasks
+
         // Update total count (approximate based on current page)
         if (tasks.length === pageSize) {
-            totalTasks = (currentPage + 1) * pageSize; // At least this many
+            totalTasks = (currentPage + 1) * pageSize;
         } else {
             totalTasks = currentPage * pageSize + tasks.length;
         }
@@ -159,13 +161,21 @@ async function fetchTasks(status = '') {
         updatePaginationInfo(tasks);
 
         if (tasks.length === 0) {
-            taskTableBody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">No tasks found.</td></tr>`;
+            taskTableBody.innerHTML = `<tr><td colspan="7" class="text-center text-muted">No tasks found.</td></tr>`;
         } else {
-            tasks.forEach(task => {
+            tasks.forEach((task, index) => {
+                console.log(`Task ${index}:`, task); // DEBUG: Log each task
+                console.log(`Task ${index} model_id:`, task.model_id); // DEBUG: Log model_id
+
                 const row = document.createElement('tr');
+                const modelDisplay = formatModelName(task.model_id);
+
+                console.log(`Task ${index} modelDisplay:`, modelDisplay); // DEBUG: Log formatted model
+
                 row.innerHTML = `
                     <td><small>${task.taskid}</small></td>
                     <td>${getStatusBadge(task.status)}</td>
+                    <td>${modelDisplay}</td>
                     <td>${formatDateTime(task.submitted_at)}</td>
                     <td>${formatDateTime(task.completed_at)}</td>
                     <td class="duration-cell" data-task-id="${task.taskid}">
@@ -188,9 +198,16 @@ async function fetchTasks(status = '') {
                 taskTableBody.appendChild(row);
                 updateTaskTimingCell(task);
             });
+
+            // Re-initialize tooltips after adding new content
+            const tooltipTriggerList = taskTableBody.querySelectorAll('[data-bs-toggle="tooltip"]');
+            console.log('Found tooltip elements:', tooltipTriggerList.length); // DEBUG
+            tooltipTriggerList.forEach(tooltipTriggerEl => {
+                new bootstrap.Tooltip(tooltipTriggerEl);
+            });
         }
     } catch (error) {
-        taskTableBody.innerHTML = `<tr><td colspan="6" class="text-center text-danger">Error fetching tasks.</td></tr>`;
+        taskTableBody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">Error fetching tasks.</td></tr>`;
         console.error('Error fetching tasks:', error);
     } finally {
         loadingSpinner.classList.add('d-none');

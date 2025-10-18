@@ -356,15 +356,18 @@ def list_tasks(
         tasks = crud.get_tasks_with_newest_first(db, skip=skip, limit=limit, status=status)
     else:
         tasks = crud.get_tasks(db, skip=skip, limit=limit, status=status)
-    return [
+    task_list = [
         {
             "taskid": t.id,
             "status": t.status,
             "submitted_at": str(t.submitted_at),
-            "completed_at": str(t.completed_at)
+            "completed_at": str(t.completed_at),
+            "model_id": t.original_input.get('config', {}).get('model_id')
         }
         for t in tasks
     ]
+    logger.info(f"Listed {len(task_list)} tasks: {task_list}")
+    return task_list
 
 
 @app.delete(

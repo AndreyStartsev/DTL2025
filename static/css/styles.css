@@ -888,3 +888,126 @@ code.inline {
         width: 100%;
     }
 }
+
+/* ============================================================================
+   Model Badge Styling - Vibrant Text on Transparent Background
+   ============================================================================ */
+
+.model-badge {
+    cursor: help;
+    font-weight: 600;
+    padding: 0.35em 0.65em;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    border: 1px solid;
+    background-color: rgba(255, 255, 255, 0.05) !important;
+}
+
+/* Gemini - Electric Deep Blue */
+.model-badge-gemini {
+    color: #2196f3 !important;
+    border-color: rgba(33, 150, 243, 0.3) !important;
+}
+
+/* Gemma - Electric Cyan */
+.model-badge-gemma {
+    color: #00e5ff !important;
+    border-color: rgba(0, 229, 255, 0.3) !important;
+}
+
+/* GPT - Electric Hot Pink */
+.model-badge-gpt {
+    color: #ff4081 !important;
+    border-color: rgba(255, 64, 129, 0.3) !important;
+}
+
+/* GPT-OSS - Electric Light Pink */
+.model-badge-gpt-oss {
+    color: #ff80ab !important;
+    border-color: rgba(255, 128, 171, 0.3) !important;
+}
+
+/* Qwen - Electric Red */
+.model-badge-qwen {
+    color: #f44336 !important;
+    border-color: rgba(244, 67, 54, 0.3) !important;
+}
+
+/* LLaMA - Electric Green */
+.model-badge-llama {
+    color: #4caf50 !important;
+    border-color: rgba(76, 175, 80, 0.3) !important;
+}
+
+/* Mistral - Electric Magenta */
+.model-badge-mistral {
+    color: #e91e63 !important;
+    border-color: rgba(233, 30, 99, 0.3) !important;
+}
+
+/* Default - Electric Gray */
+.model-badge-default {
+    color: #9e9e9e !important;
+    border-color: rgba(158, 158, 158, 0.3) !important;
+}
+
+/* Glow effect on hover */
+.model-badge:hover {
+    filter: brightness(1.3);
+    transform: translateY(-1px);
+    transition: all 0.2s ease;
+    background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.model-badge-gemini:hover {
+    box-shadow: 0 0 12px rgba(33, 150, 243, 0.5);
+    border-color: rgba(33, 150, 243, 0.6) !important;
+}
+
+.model-badge-gemma:hover {
+    box-shadow: 0 0 12px rgba(0, 229, 255, 0.5);
+    border-color: rgba(0, 229, 255, 0.6) !important;
+}
+
+.model-badge-gpt:hover {
+    box-shadow: 0 0 12px rgba(255, 64, 129, 0.5);
+    border-color: rgba(255, 64, 129, 0.6) !important;
+}
+
+.model-badge-gpt-oss:hover {
+    box-shadow: 0 0 12px rgba(255, 128, 171, 0.5);
+    border-color: rgba(255, 128, 171, 0.6) !important;
+}
+
+.model-badge-qwen:hover {
+    box-shadow: 0 0 12px rgba(244, 67, 54, 0.5);
+    border-color: rgba(244, 67, 54, 0.6) !important;
+}
+
+.model-badge-llama:hover {
+    box-shadow: 0 0 12px rgba(76, 175, 80, 0.5);
+    border-color: rgba(76, 175, 80, 0.6) !important;
+}
+
+.model-badge-mistral:hover {
+    box-shadow: 0 0 12px rgba(233, 30, 99, 0.5);
+    border-color: rgba(233, 30, 99, 0.6) !important;
+}
+
+.model-badge-default:hover {
+    box-shadow: 0 0 12px rgba(158, 158, 158, 0.3);
+    border-color: rgba(158, 158, 158, 0.5) !important;
+}
+
+/* Active/Focus state */
+.model-badge:active {
+    transform: translateY(0);
+}
+
+/* Responsive table - hide LLM column on small screens */
+@media (max-width: 768px) {
+    table th:nth-child(3),
+    table td:nth-child(3) {
+        display: none;
+    }
+}
