@@ -1,5 +1,5 @@
 /**
- * /static/js/create_task.js
+ * /static/js/new_task.js
  * Handles new task creation form and submission
  */
 
