@@ -7,7 +7,6 @@ from dataclasses import dataclass
 import pandas as pd
 
 from src.ddl_parser import DDLParser
-from src.query_analyzer import QueryAnalyzer
 
 
 @dataclass

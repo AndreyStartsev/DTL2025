@@ -4,6 +4,95 @@
  */
 
 /**
+ * Calculate schema statistics from parsed data
+ * @param {object} schemaData - Either parsed DDL tables object or schema overview object
+ * @returns {object} Statistics { tableCount, pkCount, fkCount }
+ */
+function calculateSchemaStats(schemaData) {
+    let tableCount = 0;
+    let pkCount = 0;
+    let fkCount = 0;
+
+    // Handle different data structures
+    if (schemaData.tables) {
+        const tables = Array.isArray(schemaData.tables)
+            ? schemaData.tables
+            : Object.values(schemaData.tables);
+
+        tableCount = tables.length;
+
+        tables.forEach(table => {
+            if (table.columns) {
+                const cols = Array.isArray(table.columns)
+                    ? table.columns
+                    : Object.values(table.columns);
+
+                cols.forEach(col => {
+                    if (col.is_primary_key || (col.attributes && col.attributes.includes('PK'))) {
+                        pkCount++;
+                    }
+                    if (col.is_foreign_key || (col.attributes && col.attributes.includes('FK'))) {
+                        fkCount++;
+                    }
+                });
+            }
+        });
+    }
+
+    return { tableCount, pkCount, fkCount };
+}
+
+/**
+ * Calculate stats from mermaid code
+ * @param {string} mermaidCode - The generated Mermaid ERD code
+ * @returns {object} Statistics { tableCount, pkCount, fkCount }
+ */
+function calculateStatsFromMermaid(mermaidCode) {
+    const lines = mermaidCode.split('\n');
+    let tableCount = 0;
+    let pkCount = 0;
+    let fkCount = 0;
+
+    lines.forEach(line => {
+        // Count tables (lines that start with table name followed by {)
+        if (line.trim().match(/^\w+\s*\{$/)) {
+            tableCount++;
+        }
+        // Count PK and FK in column definitions
+        if (line.includes('"PK"') || line.includes('PK ')) {
+            pkCount++;
+        }
+        if (line.includes('"FK"') || line.includes('FK ')) {
+            fkCount++;
+        }
+    });
+
+    return { tableCount, pkCount, fkCount };
+}
+
+/**
+ * Render schema statistics badge
+ * @param {object} stats - { tableCount, pkCount, fkCount }
+ * @returns {string} HTML string for stats display
+ */
+function renderSchemaStats(stats) {
+    const { tableCount, pkCount, fkCount } = stats;
+    return `
+        <div class="d-flex gap-2 align-items-center mb-2">
+            <span class="badge bg-primary fs-6">
+                <i class="bi bi-table me-1"></i>${tableCount} ${tableCount === 1 ? 'table' : 'tables'}
+            </span>
+            <span class="badge bg-info text-dark">
+                <i class="bi bi-key-fill me-1"></i>${pkCount} PK
+            </span>
+            <span class="badge bg-warning text-dark">
+                <i class="bi bi-link-45deg me-1"></i>${fkCount} FK
+            </span>
+        </div>
+    `;
+}
+
+/**
  * Smart column splitting that respects parentheses and quoted strings.
  * Splits by commas but not when inside parentheses or quotes.
  * @param {string} columnsBlock - The columns definition block.
@@ -56,11 +145,97 @@ function smartSplitColumns(columnsBlock) {
     return columns;
 }
 
+/**
+ * Sanitize column type for Mermaid ERD
+ * Removes REFERENCES clauses and problematic characters
+ * @param {string} typeString - Raw type string
+ * @returns {string} Sanitized type safe for Mermaid
+ */
+function sanitizeColumnType(typeString) {
+    if (!typeString) return 'unknown';
+
+    // Remove REFERENCES clause (everything from REFERENCES onwards)
+    let cleaned = typeString.replace(/\s+REFERENCES\s+.+$/i, '');
+
+    // Remove other constraints that might have problematic chars
+    cleaned = cleaned.replace(/\s+CHECK\s*\(.+?\)/gi, '');
+    cleaned = cleaned.replace(/\s+DEFAULT\s+.+?(?=\s+|$)/gi, '');
+
+    // Replace problematic characters for Mermaid (including forward slash!)
+    // Mermaid doesn't allow: . , ( ) / < > in type names
+    cleaned = cleaned.replace(/[.\s,()/<>]+/g, '_');
+
+    // Remove trailing/leading underscores
+    cleaned = cleaned.replace(/^_+|_+$/g, '');
+
+    // Ensure we have a valid identifier
+    cleaned = cleaned.replace(/[^a-zA-Z0-9_]/g, '');
+
+    // If empty after cleaning, use 'unknown'
+    return cleaned || 'unknown';
+}
+
+/**
+ * Extract column names from SELECT clause of CTAS
+ * @param {string} selectClause - The SELECT part of the query
+ * @returns {Array<object>} Array of column objects with name and type
+ */
+function extractColumnsFromSelect(selectClause) {
+    const columns = [];
+
+    // Remove leading SELECT keyword
+    let cleaned = selectClause.replace(/^\s*SELECT\s+/i, '').trim();
+
+    // Split by comma, but respect function calls and nested selects
+    const parts = smartSplitColumns(cleaned);
+
+    parts.forEach(part => {
+        part = part.trim();
+
+        // Handle AS aliases: "expression AS alias" or "expression alias"
+        let columnName = null;
+
+        // Check for explicit AS
+        const asMatch = part.match(/\s+AS\s+([`"]?\w+[`"]?)$/i);
+        if (asMatch) {
+            columnName = asMatch[1].replace(/[`"]/g, '');
+        } else {
+            // Check for implicit alias (space-separated)
+            // e.g., "table.column alias" or "function() alias"
+            const implicitMatch = part.match(/[\w.)]+\s+([`"]?\w+[`"]?)$/);
+            if (implicitMatch) {
+                columnName = implicitMatch[1].replace(/[`"]/g, '');
+            } else {
+                // No alias - extract from the expression
+                // Handle "table.column" -> "column"
+                const dotMatch = part.match(/\.([`"]?\w+[`"]?)$/);
+                if (dotMatch) {
+                    columnName = dotMatch[1].replace(/[`"]/g, '');
+                } else {
+                    // Just use the whole thing (simple column name or function)
+                    const simpleMatch = part.match(/([`"]?\w+[`"]?)$/);
+                    if (simpleMatch) {
+                        columnName = simpleMatch[1].replace(/[`"]/g, '');
+                    }
+                }
+            }
+        }
+
+        if (columnName && columnName.toUpperCase() !== 'FROM') {
+            columns.push({
+                name: columnName,
+                type: 'derived',
+                attributes: []
+            });
+        }
+    });
+
+    return columns;
+}
 
 /**
  * --- REWRITTEN DDL PARSER ---
- * This version uses a robust programmatic approach to find the correct parenthesis
- * scope for a table's column definitions.
+ * This version handles both traditional CREATE TABLE and CREATE TABLE AS SELECT (CTAS)
  */
 function parseDdl(ddlString) {
     const tables = {};
@@ -69,11 +244,37 @@ function parseDdl(ddlString) {
         return { tables, relationships };
     }
 
-    const tableStartRegex = /CREATE TABLE\s+(?:if not exists\s+)?(?:`|")?([\w."]+)(?:`|")?\s*\(/gi;
+    // First, try to match CTAS statements
+    const ctasRegex = /CREATE\s+TABLE\s+(?:if\s+not\s+exists\s+)?(?:`|")?([\w."]+)(?:`|")?\s+(?:WITH\s*\([^)]+\)\s+)?AS\s+SELECT\s+([\s\S]+?)(?:FROM|;)/gi;
+    let ctasMatch;
+
+    while ((ctasMatch = ctasRegex.exec(ddlString)) !== null) {
+        const tableName = ctasMatch[1];
+        const selectClause = ctasMatch[2];
+
+        if (!tables[tableName]) {
+            tables[tableName] = { name: tableName, columns: [] };
+        }
+
+        // Extract columns from SELECT
+        const columns = extractColumnsFromSelect('SELECT ' + selectClause);
+        tables[tableName].columns = columns;
+
+        console.log(`Parsed CTAS table: ${tableName} with ${columns.length} columns`);
+    }
+
+    // Then, match traditional CREATE TABLE statements
+    const tableStartRegex = /CREATE\s+TABLE\s+(?:if\s+not\s+exists\s+)?(?:`|")?([\w."]+)(?:`|")?\s*\(/gi;
     let match;
 
     while ((match = tableStartRegex.exec(ddlString)) !== null) {
         const tableName = match[1];
+
+        // Skip if already parsed as CTAS
+        if (tables[tableName]) {
+            continue;
+        }
+
         const startIndex = match.index + match[0].length;
         let parenDepth = 1;
         let endIndex = -1;
@@ -114,11 +315,19 @@ function parseDdl(ddlString) {
                 let colDetails = colMatch[2].trim();
                 let attributes = [];
 
+                // Check for PRIMARY KEY
                 if (colDetails.toLowerCase().includes('primary key')) {
                     attributes.push('PK');
                     colDetails = colDetails.replace(/primary key/ig, '').trim();
                 }
-                const colType = colDetails;
+
+                // Check for FOREIGN KEY (REFERENCES clause)
+                if (colDetails.toLowerCase().includes('references')) {
+                    attributes.push('FK');
+                }
+
+                // Sanitize the column type
+                const colType = sanitizeColumnType(colDetails);
                 tables[tableName].columns.push({ name: colName, type: colType, attributes });
 
             } else {
@@ -127,7 +336,76 @@ function parseDdl(ddlString) {
         });
         tableStartRegex.lastIndex = endIndex;
     }
+
     return { tables, relationships };
+}
+
+/**
+ * Generate Mermaid from JSON schema object (for optimized schema)
+ * @param {Object} schema - JSON schema object with properties
+ * @returns {string} Mermaid ERD syntax
+ */
+function generateOptimizedMermaid(schema) {
+    if (!schema || !schema.properties) {
+        return '%% No schema available';
+    }
+
+    let mermaid = 'erDiagram\n';
+    const mainEntity = 'Event';
+
+    // Helper function to sanitize type names for Mermaid
+    function sanitizeType(type) {
+        if (!type) return 'ANY';
+        // Replace problematic characters including /
+        return type
+            .replace(/[\/\s,().<>]+/g, '_')
+            .replace(/[^a-zA-Z0-9_]/g, '')
+            .toUpperCase() || 'ANY';
+    }
+
+    // Helper to get simplified type
+    function getSimplifiedType(prop) {
+        if (prop.type) {
+            if (Array.isArray(prop.type)) {
+                return sanitizeType(prop.type.join('_'));
+            }
+            return sanitizeType(prop.type);
+        }
+        if (prop.anyOf || prop.oneOf) {
+            const types = (prop.anyOf || prop.oneOf).map(t => t.type || 'any');
+            return sanitizeType(types.join('_'));
+        }
+        return 'ANY';
+    }
+
+    // Helper to determine if property is likely a foreign key
+    function isForeignKey(name) {
+        return name.endsWith('_id') ||
+               name.endsWith('Id') ||
+               name === 'id' ||
+               name.includes('reference');
+    }
+
+    // Process main entity
+    mermaid += `    ${mainEntity} {\n`;
+
+    for (const [key, prop] of Object.entries(schema.properties)) {
+        const type = getSimplifiedType(prop);
+        const isFK = isForeignKey(key);
+        const keyType = isFK ? 'FK' : (key === 'id' ? 'PK' : '');
+        const description = prop.description || key;
+
+        // Truncate long descriptions
+        const shortDesc = description.length > 30
+            ? description.substring(0, 27) + '...'
+            : description;
+
+        mermaid += `        ${type} ${key} ${keyType ? `"${keyType}"` : ''}\n`;
+    }
+
+    mermaid += '    }\n';
+
+    return mermaid;
 }
 
 /**
@@ -168,8 +446,8 @@ function generateMermaidFromSchemaObject(schemaData) {
                 }
                 const pk = col.is_primary_key ? ' PK' : '';
                 const fk = col.is_foreign_key ? ' FK' : '';
-                const sanitizedType = (col.type || 'unknown').replace(/[\s,]+/g, '_');
-                mermaidCode += `        ${sanitizedType} ${col.name} "${(pk + fk).trim()}"\n`;
+                const sanitizedType = sanitizeColumnType(col.type);
+                mermaidCode += `        ${sanitizedType} ${col.name}${(pk + fk).trim() ? ` "${(pk + fk).trim()}"` : ''}\n`;
             });
         }
         mermaidCode += '    }\n';
@@ -184,17 +462,17 @@ function generateMermaidFromSchemaObject(schemaData) {
 }
 
 function generateMermaidFromDDL(ddlString) {
-    if (!ddlString) return '%% No optimized DDL provided.';
+    if (!ddlString) return '%% No DDL provided.';
     const { tables, relationships } = parseDdl(ddlString);
-    if (Object.keys(tables).length === 0) return '%% Optimized DDL could not be parsed or contains no tables.';
+    if (Object.keys(tables).length === 0) return '%% DDL could not be parsed or contains no tables.';
+
     let mermaidCode = 'erDiagram\n';
     for (const tableName in tables) {
         const mermaidTableName = tableName.replace(/\./g, '_');
         mermaidCode += `    ${mermaidTableName} {\n`;
         tables[tableName].columns.forEach(col => {
             const attrs = col.attributes.join(' ').trim();
-            const sanitizedType = col.type.replace(/[\s,]+/g, '_');
-            mermaidCode += `        ${sanitizedType} ${col.name} ${attrs ? `"${attrs}"` : ''}\n`;
+            mermaidCode += `        ${col.type} ${col.name}${attrs ? ` "${attrs}"` : ''}\n`;
         });
         mermaidCode += '    }\n';
     }
@@ -206,18 +484,31 @@ function generateMermaidFromDDL(ddlString) {
 }
 
 
-async function renderMermaidDiagram(containerId, mermaidCode) {
+async function renderMermaidDiagram(containerId, mermaidCode, stats = null) {
     const container = document.getElementById(containerId);
     if (!container) return;
+
     container.innerHTML = `<div class="text-center p-4"><div class="spinner-border spinner-border-sm"></div><span class="ms-2">Generating diagram...</span></div>`;
+
     if (mermaidCode.includes('%%')) {
         container.innerHTML = `<div class="alert alert-warning m-2">${escapeHtml(mermaidCode.replace(/%%/g, '').trim())}</div>`;
         return;
     }
 
+    // Calculate stats if not provided
+    if (!stats) {
+        stats = calculateStatsFromMermaid(mermaidCode);
+    }
+
     try {
         const { svg } = await mermaid.render(`mermaid-${containerId}-${Date.now()}`, mermaidCode);
-        container.innerHTML = svg;
+
+        // Render stats badge and SVG
+        container.innerHTML = `
+            ${renderSchemaStats(stats)}
+            <div class="diagram-wrapper">${svg}</div>
+        `;
+
         const svgEl = container.querySelector('svg');
 
         if (svgEl) {
@@ -265,6 +556,6 @@ async function renderMermaidDiagram(containerId, mermaidCode) {
         }
     } catch (error) {
         console.error(`Mermaid rendering failed for #${containerId}:`, error);
-        container.innerHTML = `<div class="alert alert-danger m-2">Could not render diagram.</div><pre class="m-2">${escapeHtml(mermaidCode)}</pre>`;
+        container.innerHTML = `<div class="alert alert-danger m-2">Could not render diagram.</div><pre class="m-2 small">${escapeHtml(mermaidCode)}</pre>`;
     }
 }

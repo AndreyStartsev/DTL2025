@@ -5,7 +5,7 @@ from dotenv import load_dotenv, find_dotenv
 from loguru import logger
 from sqlalchemy.orm import Session
 
-from src.prompts import PROMPT_STEP1, PROMPT_STEP2
+from src.prompts import PROMPT_STEP0, PROMPT_STEP1, PROMPT_STEP2
 from src.analyzer import DataAnalyzer
 from src.database import SessionLocal
 from src import crud, models
@@ -51,15 +51,18 @@ def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
         config = request_data.config
 
         # --- Step 0: Initial setup ---
-        llm = get_llm(model_name=config.model_id)
+        provider = "openrouter" if not config.use_ollama else "ollama"
+        model_id = config.model_id if not config.use_ollama else "ollama/local-ollama-model"
+        llm = get_llm(model_name=config.model_id, max_tokens=config.context_length, provider=provider)
         input_dict = request_data.model_dump()
 
         # Prepare DDL and Queries as simple strings for prompts
         ddl_str = ";\n".join([item['statement'] for item in input_dict.get('ddl', [])])
-        queries_str = "\n---\n".join([
+        queries_stats = "\n---\n".join([
             f"-- Query ID: {q['queryid']}\n-- Runs: {q['runquantity']}\n{q['query']};"
             for q in input_dict.get('queries', [])
         ])
+        queries_str = "\n".join([q['query'] + ";" for q in input_dict.get('queries', [])])
 
         # --- Step 1: Analyze DB structure ---
         log.info(f"[{task_id}] Performing initial data analysis...")
@@ -79,7 +82,6 @@ def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
             db_analysis_report['schema_overview'] = db_insights_report_dict
             log.success(f"✅ [{task_id}] DB analysis completed in {time() - start_time:.2f}s")
         except Exception as e:
-            raise e
             log.error(f"[{task_id}] Analysis failed, falling back to offline analysis: {e}", exc_info=True)
             db_analysis_report = fallback_analysis(input_dict.get('queries', []))
             log.success(f"✅ [{task_id}] Fallback DB analysis completed in {time() - start_time:.2f}s")
@@ -94,29 +96,48 @@ def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
             # As a fallback, save the raw string inside a dictionary
             crud.update_task_with_analysis(db, task_id, {"raw_report": db_analysis_report})
 
+        db_expert_input = db_analysis_report.get('expert_document', db_analysis_report)
+
         # --- Step 2: Generate new DDL & Migrations ---
-        # remove schema_overview from report and agent input before passing to LLM
-        # db_agent_input = db_analysis_report.copy()
-        # db_agent_input.pop('schema_overview', None)
-        # db_agent_input.pop('agent_input', None)
+        strategy = "" if config.strategy == "balanced" else \
+            f"Main focus is {config.strategy.replace('_', ' ')} optimization."
+        prompt0 = PROMPT_STEP0.format(
+            db_analysis=db_expert_input,
+            ddl=ddl_str,
+            queries_stats=queries_stats,
+            strategy=strategy
+        )
+        log.info(f"[{task_id}] Calling LLM ({model_id}) for expert review...")
+        start_time = time()
+        expert_response = llm_call_with_so_and_fallback(llm, prompt0, models.DBRecomendationResponse)
+        log.success(f"✅ [{task_id}] Expert review completed in {time() - start_time:.2f}s")
+        log.info(f"✎ [{task_id}] {expert_response.model_dump_json(indent=2)}")
+        schema_issues = expert_response.schema_issues
+        schema_actions = expert_response.schema_actions
+        query_issues = expert_response.query_issues
+        query_actions = expert_response.query_actions
 
         db_agent_input = db_analysis_report.get('design_document', db_analysis_report)
         log.debug(f"[{task_id}] Agent Input for LLM: {db_agent_input}")
         prompt1 = PROMPT_STEP1.format(
             db_analysis=db_agent_input,
             ddl=ddl_str,
-            strategy=config.strategy
+            schema_issues=schema_issues,
+            schema_actions=schema_actions,
         )
 
-        log.info(f"[{task_id}] Calling LLM ({config.model_id}) for DDL and migration optimization...")
+        log.info(f"[{task_id}] Calling LLM ({model_id}) for DDL and migration optimization...")
         start_time = time()
         opt_response = llm_call_with_so_and_fallback(llm, prompt1, models.DBOptimizationResponse)
         log.success(f"✅ [{task_id}] DDL/Migration generation completed in {time() - start_time:.2f}s")
+        log.debug(f"[{task_id}] LLM:\n{opt_response.model_dump_json(indent=2)}")
 
         ddl_string = "\n".join(opt_response.ddl)
         log.debug(f"[{task_id}] Optimized DDL from LLM:\n{ddl_string}")
         migration_string = "\n".join(opt_response.migrations)
         log.debug(f"[{task_id}] Migration Scripts from LLM:\n{migration_string}")
+
+        log.info(f"✎ [{task_id}] {opt_response.design_note}")
 
         # Save DDL and migration results to the DB
         # crud.update_task_after_step1(db, task_id, opt_response.ddl, opt_response.migrations)
@@ -129,10 +150,11 @@ def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
         prompt2 = PROMPT_STEP2.format(
             original_queries=queries_str,
             original_ddl=ddl_str,
-            new_ddl=opt_response.ddl
+            new_ddl=opt_response.ddl,
+            query_actions=query_actions
         )
 
-        BATCH_SIZE = 10  # Define a batch size for processing queries
+        BATCH_SIZE = config.batch_size  # Define a batch size for processing queries
         queries_list = input_dict.get('queries', [])
         total_queries = len(queries_list)
 
@@ -161,10 +183,14 @@ def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
                 batch_prompt = PROMPT_STEP2.format(
                     original_queries=batch_queries_str,
                     original_ddl=ddl_str,
-                    new_ddl=opt_response.ddl
+                    new_ddl=opt_response.ddl,
+                    query_actions=query_actions
+
                 ) + f"\n\n**IMPORTANT**: You must return EXACTLY {batch_size} rewritten queries, one for each query in this batch."
 
                 batch_response = llm_call_with_so_and_fallback(llm, batch_prompt, models.RewrittenQueries)
+                # log.debug(f"[{task_id}] Schema change: {batch_response.old_schema_name} -> {batch_response.schema_name}")
+                # log.debug(f"[{task_id}] Rewritten Queries in Batch {batch_num}: {batch_response.queries}")
 
                 # VALIDATION: Check batch response count
                 if len(batch_response.queries) != batch_size:
@@ -173,7 +199,18 @@ def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
                         f"rewritten queries but expected {batch_size} queries."
                     )
                     log.error(f"[{task_id}] {error_msg}")
-                    raise ValueError(error_msg)
+                    # Try a second attempt for this batch
+                    log.info(f"[{task_id}] Retrying batch {batch_num}...")
+                    batch_prompt += (
+                        f"\n\n**RETRY**: Previous attempt returned {len(batch_response.queries)} queries. "
+                        f"Please ensure you return EXACTLY {batch_size} rewritten queries for this batch."
+                    )
+                    batch_response = llm_call_with_so_and_fallback(llm, batch_prompt, models.RewrittenQueries)
+                    if len(batch_response.queries) != batch_size:
+                        # add empty strings to match the expected count
+                        log.error(f"[{task_id}] Retry for batch {batch_num} also failed.")
+                        empty_queries_to_add = batch_size - len(batch_response.queries)
+                        batch_response.queries.extend([""] * empty_queries_to_add)
 
                 all_rewritten_queries.extend(batch_response.queries)
 
@@ -212,7 +249,6 @@ def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
         log.success(f"Task {task_id} finished successfully.")
 
     except Exception as e:
-        raise e
         log.error(f"Task {task_id} failed: {str(e)}", exc_info=True)
         crud.update_task_status(db, task_id, "FAILED", {"error": str(e)})
     finally:

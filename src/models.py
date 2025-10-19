@@ -3,7 +3,7 @@ from sqlalchemy import Column, String, DateTime, JSON, ForeignKey, Integer, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Literal, Dict
 import datetime
 
 from src.database import Base
@@ -67,8 +67,9 @@ class QueryStatement(BaseModel):
 class TaskConfig(BaseModel):
     strategy: str = Field("balanced", description="Optimization strategy: 'read_optimized', 'write_optimized', 'balanced', 'storage_optimized'")
     model_id: str = Field("meta-llama/llama-4-maverick", description="The model ID to use from OpenRouter")
-    context_length: Optional[int] = Field(10000, description="Optional context length for the model")
-    batch_size: Optional[int] = Field(15, description="Optional batch size for processing queries")
+    context_length: Optional[int] = Field(16000, description="Optional context length for the model")
+    batch_size: Optional[int] = Field(5, description="Optional batch size for processing queries")
+    use_ollama: Optional[bool] = Field(False, description="Whether to use Ollama as the LLM provider. In this case, model ID is ignored.")
 
 class NewTaskRequest(BaseModel):
     url: str
@@ -95,6 +96,7 @@ class TaskSummary(BaseModel):
     status: str
     submitted_at: datetime.datetime
     completed_at: Optional[str] = None
+    model_id: Optional[str] = None
 
 class LogEntryResponse(BaseModel):
     timestamp: datetime.datetime
@@ -115,10 +117,25 @@ class QueryDiffResponse(BaseModel):
     debug_info: Optional[dict] = None
 
 # Internal LLM Models
+class TablePlan(BaseModel):
+    table: str
+    plan: Literal['recreate_as_is', 'recreate_with_changes', 'split', 'merged']
+
+class DBRecomendationResponse(BaseModel):
+    schema_issues: Optional[str] = Field(None, description="Schema design issues")
+    query_issues: Optional[str] = Field(None, description="Query performance problems")
+    schema_actions: Optional[str] = Field(None, description="Actionable recommendations for schema optimization with examples")
+    query_actions: Optional[str] = Field(None, description="Actionable recommendations for query optimization with examples")
 
 class DBOptimizationResponse(BaseModel):
+    catalog_name: Optional[str] = Field(None, description="The name of the Trino database catalog, defined from the original DDL, e.g. catalog.schema.table -> catalog")
+    original_tables: List[str] = Field(..., description="Complete list of ALL original tables discovered from the DDL: e.g. ['catalog.schema.table1', 'catalog.schema.table2', ...]")
+    original_table_plans: List[TablePlan] = Field(..., description="One plan per original table, e.g. 'recreate_as_is', 'recreate_with_changes', 'split', 'merged'")
     ddl: list[str] = Field(..., description="The optimized DDL statements")
     migrations: list[str] = Field(..., description="The data migration scripts")
+    design_note: Optional[str] = Field(None, description="Optional design note explaining the optimization choices")
 
 class RewrittenQueries(BaseModel):
+    old_schema_name: Optional[str] = Field(None, description="The name of the ORIGINAL Trino database schema in the format of <catalog>.<schema>, used with FROM and JOIN clauses")
+    schema_name: Optional[str] = Field(None, description="The name of the NEW Trino database schema in the format of <catalog>.<schema> to be used with FROM and JOIN clauses")
     queries: list[str] = Field(..., description="List of rewritten SQL queries")

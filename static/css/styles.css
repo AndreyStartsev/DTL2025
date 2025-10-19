@@ -662,3 +662,352 @@ code.inline {
     max-width: 100%; /* Ensures SVG scales down on smaller screens */
     height: auto;
 }
+
+
+
+/* Result section styling */
+.result-section {
+    border-left: 3px solid var(--bs-primary);
+    padding-left: 1rem;
+}
+
+.result-section-title {
+    color: var(--bs-primary);
+    margin-bottom: 1rem;
+    font-weight: 600;
+}
+
+.result-section pre {
+    background-color: var(--bs-dark);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.375rem;
+    padding: 1rem;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+/* Log entries container (minimal wrapper) */
+.log-entries-container {
+    max-height: 600px;
+    overflow-y: auto;
+}
+
+/* ============================================================================
+   Create Task Modal Styling
+   ============================================================================ */
+
+/* Modal header gradient */
+#createTaskModal .modal-header {
+    border-bottom: none;
+}
+
+/* Section styling - removed left border */
+.config-section,
+.data-section {
+    background-color: rgba(var(--bs-primary-rgb), 0.05);
+    border-radius: 0.5rem;
+    padding: 1.25rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.section-header {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 0.75rem;
+}
+
+.section-title {
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+    color: var(--bs-body-color);
+}
+
+/* Form elements */
+#createTaskForm .form-label {
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+    color: var(--bs-body-color);
+}
+
+#createTaskForm .form-select,
+#createTaskForm .json-input {
+    background-color: var(--bs-dark);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: var(--bs-body-color);
+    transition: all 0.2s ease;
+}
+
+#createTaskForm .form-select:focus,
+#createTaskForm .json-input:focus {
+    background-color: var(--bs-dark);
+    border-color: var(--bs-primary);
+    box-shadow: 0 0 0 0.25rem rgba(var(--bs-primary-rgb), 0.25);
+}
+
+/* JSON textarea specific */
+.json-input {
+    font-size: 0.875rem;
+    line-height: 1.6;
+    resize: vertical;
+    min-height: 200px;
+}
+
+.json-input::placeholder {
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 0.85rem;
+}
+
+/* Form helper text */
+#createTaskForm .form-text {
+    margin-top: 0.5rem;
+    font-size: 0.875rem;
+}
+
+#createTaskForm .form-text code {
+    background-color: rgba(var(--bs-primary-rgb), 0.1);
+    color: var(--bs-primary);
+    padding: 0.1rem 0.4rem;
+    border-radius: 0.25rem;
+    font-size: 0.85rem;
+}
+
+/* Strategy description styling */
+.strategy-description {
+    padding: 0.5rem;
+    background-color: rgba(var(--bs-info-rgb), 0.1);
+    border-radius: 0.375rem;
+    border-left: 3px solid var(--bs-info);
+    margin-top: 0.5rem;
+}
+
+.strategy-description strong {
+    color: var(--bs-info);
+}
+
+/* Model recommendation badge in form text */
+#createTaskForm .badge {
+    font-weight: 500;
+    padding: 0.35em 0.65em;
+    font-size: 0.75rem;
+}
+
+/* Submit button with icon */
+#createSubmitBtn {
+    min-width: 140px;
+    font-weight: 500;
+}
+
+#createSubmitBtn:disabled {
+    opacity: 0.6;
+}
+
+/* Error alert styling */
+#createError {
+    border-left: 4px solid var(--bs-danger);
+    background-color: rgba(var(--bs-danger-rgb), 0.1);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .config-section,
+    .data-section {
+        padding: 1rem;
+    }
+
+    .json-input {
+        font-size: 0.8rem;
+    }
+}
+
+/* Scrollbar styling for modal */
+#createTaskModal .modal-body {
+    scrollbar-width: thin;
+    scrollbar-color: var(--bs-primary) transparent;
+}
+
+#createTaskModal .modal-body::-webkit-scrollbar {
+    width: 8px;
+}
+
+#createTaskModal .modal-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+#createTaskModal .modal-body::-webkit-scrollbar-thumb {
+    background-color: var(--bs-primary);
+    border-radius: 4px;
+}
+
+#createTaskModal .modal-body::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(var(--bs-primary-rgb), 0.85);
+}
+
+/* ============================================================================
+   Pagination Controls
+   ============================================================================ */
+
+.card-footer {
+    padding: 0.75rem 1.25rem;
+}
+
+.pagination-controls .form-select {
+    background-color: var(--bs-dark);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: var(--bs-body-color);
+    font-size: 0.875rem;
+}
+
+.pagination-controls .btn-group .btn {
+    font-size: 0.875rem;
+    padding: 0.375rem 0.75rem;
+}
+
+.pagination-controls .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+#paginationInfo {
+    font-size: 0.875rem;
+}
+
+/* Responsive pagination */
+@media (max-width: 768px) {
+    .card-footer > div {
+        flex-direction: column;
+        gap: 0.75rem;
+        align-items: stretch !important;
+    }
+
+    .pagination-controls {
+        flex-direction: column;
+        width: 100%;
+    }
+
+    .pagination-controls .form-select,
+    .pagination-controls .btn-group {
+        width: 100%;
+    }
+}
+
+/* ============================================================================
+   Model Badge Styling - Vibrant Text on Transparent Background
+   ============================================================================ */
+
+.model-badge {
+    cursor: help;
+    font-weight: 600;
+    padding: 0.35em 0.65em;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    border: 1px solid;
+    background-color: rgba(255, 255, 255, 0.05) !important;
+}
+
+/* Gemini - Electric Deep Blue */
+.model-badge-gemini {
+    color: #2196f3 !important;
+    border-color: rgba(33, 150, 243, 0.3) !important;
+}
+
+/* Gemma - Electric Cyan */
+.model-badge-gemma {
+    color: #00e5ff !important;
+    border-color: rgba(0, 229, 255, 0.3) !important;
+}
+
+/* GPT - Electric Hot Pink */
+.model-badge-gpt {
+    color: #ff4081 !important;
+    border-color: rgba(255, 64, 129, 0.3) !important;
+}
+
+/* GPT-OSS - Electric Light Pink */
+.model-badge-gpt-oss {
+    color: #ff80ab !important;
+    border-color: rgba(255, 128, 171, 0.3) !important;
+}
+
+/* Qwen - Electric Red */
+.model-badge-qwen {
+    color: #f44336 !important;
+    border-color: rgba(244, 67, 54, 0.3) !important;
+}
+
+/* LLaMA - Electric Violet */
+.model-badge-llama {
+    color: #7c4dff !important;
+    border-color: rgba(124, 77, 255, 0.3) !important;
+}
+
+/* Mistral - Electric Magenta */
+.model-badge-mistral {
+    color: #e91e63 !important;
+    border-color: rgba(233, 30, 99, 0.3) !important;
+}
+
+/* Default - Electric Gray */
+.model-badge-default {
+    color: #9e9e9e !important;
+    border-color: rgba(158, 158, 158, 0.3) !important;
+}
+
+/* Glow effect on hover */
+.model-badge:hover {
+    filter: brightness(1.3);
+    transform: translateY(-1px);
+    transition: all 0.2s ease;
+    background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.model-badge-gemini:hover {
+    box-shadow: 0 0 12px rgba(33, 150, 243, 0.5);
+    border-color: rgba(33, 150, 243, 0.6) !important;
+}
+
+.model-badge-gemma:hover {
+    box-shadow: 0 0 12px rgba(0, 229, 255, 0.5);
+    border-color: rgba(0, 229, 255, 0.6) !important;
+}
+
+.model-badge-gpt:hover {
+    box-shadow: 0 0 12px rgba(255, 64, 129, 0.5);
+    border-color: rgba(255, 64, 129, 0.6) !important;
+}
+
+.model-badge-gpt-oss:hover {
+    box-shadow: 0 0 12px rgba(255, 128, 171, 0.5);
+    border-color: rgba(255, 128, 171, 0.6) !important;
+}
+
+.model-badge-qwen:hover {
+    box-shadow: 0 0 12px rgba(244, 67, 54, 0.5);
+    border-color: rgba(244, 67, 54, 0.6) !important;
+}
+
+.model-badge-llama:hover {
+    box-shadow: 0 0 12px rgba(124, 77, 255, 0.5);
+    border-color: rgba(124, 77, 255, 0.6) !important;
+}
+
+.model-badge-mistral:hover {
+    box-shadow: 0 0 12px rgba(233, 30, 99, 0.5);
+    border-color: rgba(233, 30, 99, 0.6) !important;
+}
+
+.model-badge-default:hover {
+    box-shadow: 0 0 12px rgba(158, 158, 158, 0.3);
+    border-color: rgba(158, 158, 158, 0.5) !important;
+}
+
+/* Active/Focus state */
+.model-badge:active {
+    transform: translateY(0);
+}
+
+/* Responsive table - hide LLM column on small screens */
+@media (max-width: 768px) {
+    table th:nth-child(3),
+    table td:nth-child(3) {
+        display: none;
+    }
+}

@@ -1,4 +1,7 @@
-// Main Application Logic
+/**
+ * /static/js/app.js
+ * Main Application Logic - Task Management and Modal Handling
+ */
 
 mermaid.initialize({
     startOnLoad: false,
@@ -8,10 +11,20 @@ mermaid.initialize({
 
 let mermaidRendered = false;
 let currentFilter = '';
-let currentTaskId = null; // Stays for non-modal context if any, but modal is primary
+let currentModalTaskId = null;
+let loadedTabs = new Set();
+let analysisReportCache = null;
 
-// (updateTaskTimingCell, getStatusBadge, fetchTasks, deleteTask, renderColoredDiff functions are unchanged)
-// ... paste unchanged functions here ...
+// Pagination state
+let currentPage = 0;
+let pageSize = 20;
+let sortOrder = 'newest'; // 'newest' or 'oldest'
+let totalTasks = 0;
+
+// ============================================================================
+// Task Timing and Status
+// ============================================================================
+
 async function updateTaskTimingCell(task) {
     const cell = document.querySelector(`.duration-cell[data-task-id="${task.taskid}"]`);
     if (!cell) return;
@@ -83,6 +96,47 @@ function getStatusBadge(status) {
     return `<span class="badge ${badges[status] || 'bg-secondary'} status-badge">${status}</span>`;
 }
 
+// ============================================================================
+// Pagination
+// ============================================================================
+
+function updatePaginationInfo(tasks) {
+    const paginationInfo = document.getElementById('paginationInfo');
+    const prevPageBtn = document.getElementById('prevPageBtn');
+    const nextPageBtn = document.getElementById('nextPageBtn');
+
+    const start = tasks.length > 0 ? (currentPage * pageSize + 1) : 0;
+    const end = Math.min((currentPage + 1) * pageSize, currentPage * pageSize + tasks.length);
+
+    // Update info text
+    paginationInfo.textContent = `Showing ${start}-${end} of ${totalTasks}+ tasks`;
+
+    // Update button states
+    prevPageBtn.disabled = currentPage === 0;
+    nextPageBtn.disabled = tasks.length < pageSize;
+}
+
+function goToPage(page) {
+    currentPage = Math.max(0, page);
+    fetchTasks(currentFilter);
+}
+
+function changePageSize(newSize) {
+    pageSize = newSize;
+    currentPage = 0; // Reset to first page
+    fetchTasks(currentFilter);
+}
+
+function changeSortOrder(order) {
+    sortOrder = order;
+    currentPage = 0; // Reset to first page
+    fetchTasks(currentFilter);
+}
+
+// ============================================================================
+// Task List Management
+// ============================================================================
+
 async function fetchTasks(status = '') {
     const taskTableBody = document.getElementById('task-table-body');
     const loadingSpinner = document.getElementById('loadingSpinner');
@@ -91,17 +145,37 @@ async function fetchTasks(status = '') {
     taskTableBody.innerHTML = '';
 
     try {
-        const response = await fetch(`/tasks?status=${status}`);
+        const skip = currentPage * pageSize;
+        const response = await fetch(`/tasks?status=${status}&skip=${skip}&limit=${pageSize}&order=${sortOrder}`);
         const tasks = await response.json();
 
-        if (tasks.length === 0) {
-            taskTableBody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">No tasks found.</td></tr>`;
+        console.log('Fetched tasks:', tasks); // DEBUG: Log all tasks
+
+        // Update total count (approximate based on current page)
+        if (tasks.length === pageSize) {
+            totalTasks = (currentPage + 1) * pageSize;
         } else {
-            tasks.forEach(task => {
+            totalTasks = currentPage * pageSize + tasks.length;
+        }
+
+        updatePaginationInfo(tasks);
+
+        if (tasks.length === 0) {
+            taskTableBody.innerHTML = `<tr><td colspan="7" class="text-center text-muted">No tasks found.</td></tr>`;
+        } else {
+            tasks.forEach((task, index) => {
+                console.log(`Task ${index}:`, task); // DEBUG: Log each task
+                console.log(`Task ${index} model_id:`, task.model_id); // DEBUG: Log model_id
+
                 const row = document.createElement('tr');
+                const modelDisplay = formatModelName(task.model_id);
+
+                console.log(`Task ${index} modelDisplay:`, modelDisplay); // DEBUG: Log formatted model
+
                 row.innerHTML = `
                     <td><small>${task.taskid}</small></td>
                     <td>${getStatusBadge(task.status)}</td>
+                    <td>${modelDisplay}</td>
                     <td>${formatDateTime(task.submitted_at)}</td>
                     <td>${formatDateTime(task.completed_at)}</td>
                     <td class="duration-cell" data-task-id="${task.taskid}">
@@ -124,9 +198,16 @@ async function fetchTasks(status = '') {
                 taskTableBody.appendChild(row);
                 updateTaskTimingCell(task);
             });
+
+            // Re-initialize tooltips after adding new content
+            const tooltipTriggerList = taskTableBody.querySelectorAll('[data-bs-toggle="tooltip"]');
+            console.log('Found tooltip elements:', tooltipTriggerList.length); // DEBUG
+            tooltipTriggerList.forEach(tooltipTriggerEl => {
+                new bootstrap.Tooltip(tooltipTriggerEl);
+            });
         }
     } catch (error) {
-        taskTableBody.innerHTML = `<tr><td colspan="6" class="text-center text-danger">Error fetching tasks.</td></tr>`;
+        taskTableBody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">Error fetching tasks.</td></tr>`;
         console.error('Error fetching tasks:', error);
     } finally {
         loadingSpinner.classList.add('d-none');
@@ -139,6 +220,14 @@ async function deleteTask(taskId) {
     try {
         const response = await fetch(`/task/${taskId}`, { method: 'DELETE' });
         if (response.ok) {
+            // If we delete the last item on a page, go back one page
+            const taskTableBody = document.getElementById('task-table-body');
+            const remainingRows = taskTableBody.querySelectorAll('tr').length - 1;
+
+            if (remainingRows === 0 && currentPage > 0) {
+                currentPage--;
+            }
+
             fetchTasks(currentFilter);
         } else {
             alert('Failed to delete task.');
@@ -149,111 +238,118 @@ async function deleteTask(taskId) {
     }
 }
 
-async function renderColoredDiff(taskId, status) {
-    const diffContainer = document.getElementById('diff-content');
-    if (!diffContainer) return;
+// ============================================================================
+// Modal Tab Content Handler
+// ============================================================================
 
-    if (status !== 'DONE') {
-        diffContainer.innerHTML = '<div class="alert alert-info">Task is not yet complete.</div>';
-        return;
-    }
+async function handleTabContent(tabElement) {
+    if (!tabElement) return;
+    const tabId = tabElement.getAttribute('data-bs-target');
+    if (!currentModalTaskId || loadedTabs.has(tabId)) return;
 
-    diffContainer.innerHTML = '<div class="text-center p-3"><div class="spinner-border spinner-border-sm"></div> Loading diff...</div>';
+    const status = document.querySelector(`.view-details[data-task-id="${currentModalTaskId}"]`)?.dataset.status;
+
+    loadedTabs.add(tabId);
 
     try {
-        const res = await fetch(`/task/${taskId}/diff`);
-        if (!res.ok) throw new Error('Failed to fetch diff data');
-        const diffData = await res.json();
+        if (tabId === '#visualizer') {
+            if (status === 'DONE') {
+                Promise.all([
+                    fetch(`/task_info/${currentModalTaskId}`).then(async res => {
+                        if (!res.ok) throw new Error(`Original DDL fetch failed: ${res.statusText}`);
+                        return res.json();
+                    }),
+                    fetch(`/getresult?task_id=${currentModalTaskId}`).then(async res => {
+                        if (!res.ok) throw new Error(`Optimized DDL fetch failed: ${res.statusText}`);
+                        return res.json();
+                    })
+                ]).then(([taskInfoData, resultData]) => {
+                    // Process Original Schema
+                    if (taskInfoData && taskInfoData.original_input && Array.isArray(taskInfoData.original_input.ddl)) {
+                        const originalDdlString = taskInfoData.original_input.ddl.map(d => d.statement).join(';\n');
+                        const originalMermaidCode = generateMermaidFromDDL(originalDdlString);
+                        const originalStats = calculateStatsFromMermaid(originalMermaidCode);
+                        renderMermaidDiagram('original-schema-viz', originalMermaidCode, originalStats);
+                    } else {
+                        throw new Error("Original DDL not found in /task_info response.");
+                    }
 
-        if (!diffData.diffs || diffData.diffs.length === 0) {
-            diffContainer.innerHTML = '<div class="alert alert-warning">No queries to compare.</div>';
-            return;
+                    // Process Optimized Schema
+                    const optimizedDdlString = resultData.ddl.map(d => d.statement).join(';\n');
+                    const optimizedMermaidCode = generateMermaidFromDDL(optimizedDdlString);
+                    const optimizedStats = calculateStatsFromMermaid(optimizedMermaidCode);
+                    renderMermaidDiagram('optimized-schema-viz', optimizedMermaidCode, optimizedStats);
+
+                }).catch(e => {
+                    console.error("Error loading schema visualizer data:", e);
+                    document.getElementById('original-schema-viz').innerHTML = `<div class="alert alert-danger m-2">Error loading diagrams: ${e.message}</div>`;
+                    document.getElementById('optimized-schema-viz').innerHTML = '';
+                });
+            } else {
+                document.getElementById('original-schema-viz').innerHTML = `<div class="alert alert-info m-2">Task is not yet complete. Diagrams will be generated once the task is DONE.</div>`;
+                document.getElementById('optimized-schema-viz').innerHTML = ``;
+            }
+        } else if (tabId === '#schema') {
+            const schemaData = analysisReportCache?.raw_report?.schema_overview;
+            if (schemaData) {
+                renderSchemaOverview(schemaData);
+            } else {
+                document.getElementById('schema-root').innerHTML = '<div class="alert alert-warning">Schema data (`raw_report.schema_overview`) was not found.</div>';
+            }
+        } else if (tabId === '#analysis') {
+            renderAnalysis(analysisReportCache);
+        } else if (tabId === '#result') {
+            await renderResult(currentModalTaskId, status);
+        } else if (tabId === '#log') {
+            await renderLogs(currentModalTaskId);
+        } else if (tabId === '#diff') {
+            await renderColoredDiff(currentModalTaskId, status);
         }
-
-        const html = diffData.diffs.map((d, index) => {
-            const queryId = d.queryid;
-            const original = d.original || '';
-            const optimized = d.optimized || '';
-
-            const hasChanges = original !== optimized;
-            const statusBadge = !optimized
-                ? '<span class="badge bg-danger">Missing</span>'
-                : (hasChanges
-                    ? '<span class="badge bg-success">Optimized</span>'
-                    : '<span class="badge bg-secondary">Unchanged</span>');
-
-            return `
-                <div class="query-comparison mb-4">
-                    <div class="query-comparison-header">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <div>
-                                <i class="bi bi-database"></i>
-                                <strong>Query ${index + 1}</strong>
-                                <code class="ms-2 query-id">${escapeHtml(queryId.substring(0, 13))}...</code>
-                                ${statusBadge}
-                            </div>
-                            <div class="text-muted small">
-                                ${d.original_length} → ${d.optimized_length} chars
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="row g-0">
-                        <div class="col-md-6">
-                            <div class="query-panel query-panel-original">
-                                <div class="query-panel-header"><i class="bi bi-file-earmark-code"></i> Original Query</div>
-                                <div class="query-panel-body"><pre class="sql-code"><code>${escapeHtml(original)}</code></pre></div>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="query-panel query-panel-optimized">
-                                <div class="query-panel-header"><i class="bi bi-rocket"></i> Optimized Query</div>
-                                <div class="query-panel-body"><pre class="sql-code"><code>${optimized ? escapeHtml(optimized) : '<span class="text-muted">No optimized version</span>'}</code></pre></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }).join('');
-
-        diffContainer.innerHTML = html;
     } catch (e) {
-        console.error('Error rendering diff:', e);
-        diffContainer.innerHTML = `<div class="alert alert-danger">Error loading queries: ${e.message}</div>`;
+        const errorContainer = document.querySelector(tabId);
+        if (errorContainer) {
+            errorContainer.innerHTML = `<div class="alert alert-danger">Error loading content for this tab: ${e.message}</div>`;
+        }
+        console.error(`Error loading tab ${tabId}:`, e);
     }
 }
 
+// ============================================================================
+// DOM Ready - Event Listeners
+// ============================================================================
 
-// Initialize on DOM ready
 document.addEventListener('DOMContentLoaded', () => {
-    // Initialize all Bootstrap tooltips on the page
+    // Initialize Bootstrap tooltips
     const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
     tooltipTriggerList.forEach(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl));
 
-    // (Get element references are unchanged)
+    // Get DOM elements
     const refreshButton = document.getElementById('refreshButton');
     const filterButtons = document.querySelectorAll('#statusFilters button');
-    const createTaskForm = document.getElementById('createTaskForm');
-    const createSubmitBtn = document.getElementById('createSubmitBtn');
-    const createSpinner = document.getElementById('createSpinner');
-    const createError = document.getElementById('createError');
     const taskTableBody = document.getElementById('task-table-body');
     const detailModal = document.getElementById('detailModal');
     const statsModal = document.getElementById('statsModal');
-    let loadedTabs = new Set();
-    let currentModalTaskId = null;
-    let analysisReportCache = null;
+    const prevPageBtn = document.getElementById('prevPageBtn');
+    const nextPageBtn = document.getElementById('nextPageBtn');
+    const pageSizeSelect = document.getElementById('pageSizeSelect');
+    const sortOrderSelect = document.getElementById('sortOrderSelect');
 
-    // (Event listeners for refresh, filters, delete are unchanged)
+    // ============================================================================
+    // Event Listeners - Task List
+    // ============================================================================
+
     refreshButton.addEventListener('click', () => fetchTasks(currentFilter));
+
     filterButtons.forEach(button => {
         button.addEventListener('click', () => {
             filterButtons.forEach(btn => btn.classList.remove('active'));
             button.classList.add('active');
             currentFilter = button.dataset.status;
+            currentPage = 0; // Reset to first page when filter changes
             fetchTasks(currentFilter);
         });
     });
+
     taskTableBody.addEventListener('click', (e) => {
         const deleteBtn = e.target.closest('.delete-task');
         if (deleteBtn) {
@@ -261,56 +357,38 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // (Create task form listener is unchanged)
-    createTaskForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        createSubmitBtn.disabled = true;
-        createSpinner.classList.remove('d-none');
-        createError.classList.add('d-none');
+    // ============================================================================
+    // Event Listeners - Pagination
+    // ============================================================================
 
-        let data;
-        try {
-            data = JSON.parse(document.getElementById('taskDataJson').value);
-            if (!data.url || !data.ddl || !data.queries) {
-                throw new Error('The JSON data must include "url", "ddl", and "queries" keys.');
-            }
+    prevPageBtn.addEventListener('click', () => goToPage(currentPage - 1));
+    nextPageBtn.addEventListener('click', () => goToPage(currentPage + 1));
 
-            const payload = {
-                ...data, // spread the url, ddl, queries
-                config: {
-                    strategy: document.getElementById('strategySelect').value,
-                    model_id: document.getElementById('modelSelect').value,
-                    context_length: 10000,
-                    batch_size: 15
-                }
-            };
-
-            const response = await fetch('/new', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            if (response.ok) {
-                bootstrap.Modal.getInstance(document.getElementById('createTaskModal')).hide();
-                createTaskForm.reset();
-                fetchTasks(currentFilter);
-            } else {
-                const errorData = await response.json();
-                throw new Error(errorData.detail || 'Failed to create task.');
-            }
-        } catch (error) {
-            createError.textContent = `Error: ${error.message}`;
-            createError.classList.remove('d-none');
-        } finally {
-            createSubmitBtn.disabled = false;
-            createSpinner.classList.add('d-none');
-        }
+    pageSizeSelect.addEventListener('change', (e) => {
+        changePageSize(parseInt(e.target.value));
     });
 
-    // --- Modal Logic ---
+    if (sortOrderSelect) {
+        sortOrderSelect.addEventListener('change', (e) => {
+            changeSortOrder(e.target.value);
+        });
+    }
+
+    // ============================================================================
+    // Initialize Create Task Form
+    // ============================================================================
+
+    initializeCreateTaskForm(() => {
+        // Callback on successful task creation - go to first page to see new task
+        currentPage = 0;
+        fetchTasks(currentFilter);
+    });
+
+    // ============================================================================
+    // Event Listeners - Detail Modal
+    // ============================================================================
+
     detailModal.addEventListener('show.bs.modal', async (event) => {
-        // (This initial part is mostly unchanged)
         const button = event.relatedTarget;
         currentModalTaskId = button.dataset.taskId;
 
@@ -322,9 +400,10 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('detailContent').classList.add('d-none');
         document.getElementById('detailError').classList.add('d-none');
 
+        // Clear all tab contents
         ['schema-root', 'analysis-root', 'result-content', 'diff-content', 'log-content', 'original-schema-viz', 'optimized-schema-viz'].forEach(id => {
-           const el = document.getElementById(id);
-           if (el) el.innerHTML = '';
+            const el = document.getElementById(id);
+            if (el) el.innerHTML = '';
         });
 
         try {
@@ -332,8 +411,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!analysisRes.ok) throw new Error('Failed to load analysis report');
             analysisReportCache = await analysisRes.json();
 
-            // This is just a high-level cache now, not used for the original DDL diagram.
-            console.log("Full analysis report cached:", analysisReportCache);
+            console.log("Analysis report cached:", analysisReportCache);
 
         } catch (e) {
             console.error('Fatal: could not load analysis report', e);
@@ -354,106 +432,10 @@ document.addEventListener('DOMContentLoaded', () => {
         tab.addEventListener('shown.bs.tab', async event => handleTabContent(event.target));
     });
 
-    /**
-     * --- CORRECTED handleTabContent function ---
-     * This function now correctly fetches the original DDL from the /task_info endpoint
-     * for the visualizer tab, instead of relying on the incomplete analysis cache.
-     */
-    async function handleTabContent(tabElement) {
-        if (!tabElement) return;
-        const tabId = tabElement.getAttribute('data-bs-target');
-        if (!currentModalTaskId || loadedTabs.has(tabId)) return;
+    // ============================================================================
+    // Event Listeners - Stats Modal
+    // ============================================================================
 
-        const status = document.querySelector(`.view-details[data-task-id="${currentModalTaskId}"]`)?.dataset.status;
-        const spinnerHtml = '<div class="text-center p-5"><div class="spinner-border" role="status"></div></div>';
-
-        loadedTabs.add(tabId);
-
-        try {
-            if (tabId === '#visualizer') {
-                if (status === 'DONE') {
-                    // Use Promise.all to fetch both original and optimized schemas concurrently.
-                    Promise.all([
-                        // Promise for Original Schema from the correct endpoint.
-                        fetch(`/task_info/${currentModalTaskId}`).then(async res => {
-                            if (!res.ok) throw new Error(`Original DDL fetch failed: ${res.statusText}`);
-                            return res.json();
-                        }),
-                        // Promise for Optimized Schema.
-                        fetch(`/getresult?task_id=${currentModalTaskId}`).then(async res => {
-                            if (!res.ok) throw new Error(`Optimized DDL fetch failed: ${res.statusText}`);
-                            return res.json();
-                        })
-                    ]).then(([taskInfoData, resultData]) => {
-                        // --- Process Original Schema ---
-                        if (taskInfoData && taskInfoData.original_input && Array.isArray(taskInfoData.original_input.ddl)) {
-                            // Re-use the robust DDL parser.
-                            const originalDdlString = taskInfoData.original_input.ddl.map(d => d.statement).join(';\n');
-                            const originalMermaidCode = generateMermaidFromDDL(originalDdlString);
-                            renderMermaidDiagram('original-schema-viz', originalMermaidCode);
-                        } else {
-                            throw new Error("Original DDL not found in /task_info response.");
-                        }
-
-                        // --- Process Optimized Schema ---
-                        const optimizedDdlString = resultData.ddl.map(d => d.statement).join(';\n');
-                        const optimizedMermaidCode = generateMermaidFromDDL(optimizedDdlString);
-                        renderMermaidDiagram('optimized-schema-viz', optimizedMermaidCode);
-
-                    }).catch(e => {
-                        console.error("Error loading schema visualizer data:", e);
-                        document.getElementById('original-schema-viz').innerHTML = `<div class="alert alert-danger m-2">Error loading diagrams: ${e.message}</div>`;
-                        document.getElementById('optimized-schema-viz').innerHTML = '';
-                    });
-
-                } else {
-                    document.getElementById('original-schema-viz').innerHTML = `<div class="alert alert-info m-2">Task is not yet complete. Diagrams will be generated once the task is DONE.</div>`;
-                    document.getElementById('optimized-schema-viz').innerHTML = ``;
-                }
-            } else if (tabId === '#schema') {
-                const schemaData = analysisReportCache?.raw_report?.schema_overview;
-                if (schemaData) {
-                    renderSchemaOverview(schemaData);
-                } else {
-                    document.getElementById('schema-root').innerHTML = '<div class="alert alert-warning">Schema data (`raw_report.schema_overview`) was not found.</div>';
-                }
-            } else if (tabId === '#analysis') {
-                renderAnalysis(analysisReportCache);
-            } else if (tabId === '#result') {
-                const container = document.getElementById('result-content');
-                container.innerHTML = spinnerHtml;
-                if (status === 'DONE') {
-                    const res = await fetch(`/getresult?task_id=${currentModalTaskId}`);
-                    if (!res.ok) throw new Error((await res.json()).detail);
-                    const data = await res.json();
-                    container.innerHTML = `
-                        <h6>Optimized DDL</h6><pre><code>${escapeHtml(data.ddl.map(d => d.statement + ';').join('\n'))}</code></pre>
-                        <h6>Migration Scripts</h6><pre><code>${escapeHtml(data.migrations.map(m => m.statement + ';').join('\n'))}</code></pre>
-                        <h6>Rewritten Queries</h6><pre><code>${escapeHtml(JSON.stringify(data.queries, null, 2))}</code></pre>
-                    `;
-                } else {
-                    container.innerHTML = `<div class="alert alert-info">Task is not yet DONE.</div>`;
-                }
-            } else if (tabId === '#log') {
-                const container = document.getElementById('log-content');
-                container.innerHTML = spinnerHtml;
-                const res = await fetch(`/task/${currentModalTaskId}/log`);
-                const logs = await res.json();
-                renderLogs(logs);
-            } else if (tabId === '#diff') {
-                await renderColoredDiff(currentModalTaskId, status);
-            }
-        } catch (e) {
-            const errorContainer = document.querySelector(tabId);
-            if(errorContainer) {
-                 errorContainer.innerHTML = `<div class="alert alert-danger">Error loading content for this tab: ${e.message}</div>`;
-            }
-            console.error(`Error loading tab ${tabId}:`, e);
-        }
-    }
-
-    // (Stats modal listeners are unchanged)
-    // ... paste unchanged stats modal listeners here ...
     statsModal.addEventListener('show.bs.modal', async () => {
         try {
             const response = await fetch('/tasks');
@@ -495,7 +477,6 @@ stateDiagram-v2
         mermaidRendered = false;
         document.getElementById('mermaid-diagram').innerHTML = '';
     });
-
 
     // Initial load
     fetchTasks();

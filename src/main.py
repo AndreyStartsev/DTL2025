@@ -1,6 +1,5 @@
 # app/main.py
 import uuid
-import difflib
 import datetime
 import sqlparse
 from typing import Dict, Any, List, Optional
@@ -42,6 +41,8 @@ app = FastAPI(
     description="""
 An intelligent API service that asynchronously analyzes and optimizes database schemas and SQL queries.
 
+[Swagger UI](/docs) | [ReDoc](/redoc)
+
 ### Features
 
 * **Schema Analysis**: Deep analysis of database structure and relationships
@@ -66,13 +67,18 @@ An intelligent API service that asynchronously analyzes and optimizes database s
 
 Tasks that exceed {TASK_TIMEOUT_MINUTES} minutes are automatically marked as `FAILED`.
     """,
-    version="1.0.0",
+    version="1.5.0",
     contact={
         "email": "vvirsys@gmail.com"
     },
     openapi_tags=tags_metadata,
     docs_url="/docs",
     redoc_url="/redoc",
+    swagger_ui_parameters={
+        "defaultModelsExpandDepth": -1,  # Hide models section by default
+        "syntaxHighlight.theme": "github",  # Set syntax highlighting theme
+        "displayRequestDuration": True,  # Show request duration
+    }
 )
 
 TASK_TIMEOUT_MINUTES = 20
@@ -344,6 +350,7 @@ def list_tasks(
         ),
         skip: int = Query(0, ge=0, description="Number of tasks to skip for pagination"),
         limit: int = Query(20, ge=1, le=100, description="Maximum number of tasks to return"),
+        order: str = Query("newest", description="Order of tasks by submission time", enum=["newest", "oldest"]),
         db: Session = Depends(get_db)
 ):
     """
@@ -351,16 +358,22 @@ def list_tasks(
 
     Useful for monitoring multiple tasks or reviewing historical optimizations.
     """
-    tasks = crud.get_tasks(db, skip=skip, limit=limit, status=status)
-    return [
-        {
-            "taskid": t.id,
-            "status": t.status,
-            "submitted_at": str(t.submitted_at),
-            "completed_at": str(t.completed_at)
-        }
-        for t in tasks
-    ]
+    if order == "newest":
+        tasks = crud.get_tasks_with_newest_first(db, skip=skip, limit=limit, status=status)
+    else:
+        tasks = crud.get_tasks(db, skip=skip, limit=limit, status=status)
+    task_list = []
+    for task in tasks:
+        is_ollama = task.original_input.get('config', {}).get('use_ollama', False)
+        model_id = task.original_input.get('config', {}).get('model_id') if not is_ollama else "Local Ollama Model"
+        task_list.append({
+            "taskid": task.id,
+            "status": task.status,
+            "submitted_at": str(task.submitted_at),
+            "completed_at": str(task.completed_at),
+            "model_id": model_id
+        })
+    return task_list
 
 
 @app.delete(
