@@ -128,8 +128,7 @@ class DBRecomendationResponse(BaseModel):
     query_actions: Optional[str] = Field(None, description="Actionable recommendations for query optimization with examples")
 
 class DBOptimizationResponse(BaseModel):
-    """Field(..., description="One plan per original table, e.g. 'recreate_as_is', 'recreate_with_changes', 'repartition_only', 'recluster_only', 'auxiliary_optimized'")"""
-    catalog_name: Optional[str] = Field(None, description="The name of the Trino database catalog, defined from the original DDL")
+    catalog_name: Optional[str] = Field(None, description="The name of the Trino database catalog, defined from the original DDL, e.g. catalog.schema.table -> catalog")
     original_tables: List[str] = Field(..., description="Complete list of ALL original tables discovered from the DDL: e.g. ['catalog.schema.table1', 'catalog.schema.table2', ...]")
     original_table_plans: List[TablePlan] = Field(..., description="One plan per original table, e.g. 'recreate_as_is', 'recreate_with_changes', 'split', 'merged'")
     ddl: list[str] = Field(..., description="The optimized DDL statements")
