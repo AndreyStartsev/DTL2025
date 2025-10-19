@@ -3,7 +3,7 @@ from sqlalchemy import Column, String, DateTime, JSON, ForeignKey, Integer, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Literal, Dict
 import datetime
 
 from src.database import Base
@@ -117,22 +117,21 @@ class QueryDiffResponse(BaseModel):
     debug_info: Optional[dict] = None
 
 # Internal LLM Models
+class TablePlan(BaseModel):
+    table: str
+    plan: Literal['recreate_as_is', 'recreate_with_changes', 'split', 'merged']
 
 class DBRecomendationResponse(BaseModel):
-    """
-- `schema_issues`: Schema design issues (e.g., normalization problems, indexing gaps). Data distribution, denormalization, and partitioning concerns
-- `query_issues`: Query performance problems (e.g., slow joins, missing filters)
-- `schema_actions`: Actionable recommendations for optimization with specific examples of tables to denormalize, indexes to add, partitions to create.
-- `query_actions`: Actionable recommendations for specific query rewrites or patterns to improve performance.
-
-    """
     schema_issues: Optional[str] = Field(None, description="Schema design issues")
     query_issues: Optional[str] = Field(None, description="Query performance problems")
     schema_actions: Optional[str] = Field(None, description="Actionable recommendations for schema optimization with examples")
     query_actions: Optional[str] = Field(None, description="Actionable recommendations for query optimization with examples")
 
 class DBOptimizationResponse(BaseModel):
+    """Field(..., description="One plan per original table, e.g. 'recreate_as_is', 'recreate_with_changes', 'repartition_only', 'recluster_only', 'auxiliary_optimized'")"""
     catalog_name: Optional[str] = Field(None, description="The name of the Trino database catalog, defined from the original DDL")
+    original_tables: List[str] = Field(..., description="Complete list of ALL original tables discovered from the DDL: e.g. ['catalog.schema.table1', 'catalog.schema.table2', ...]")
+    original_table_plans: List[TablePlan] = Field(..., description="One plan per original table, e.g. 'recreate_as_is', 'recreate_with_changes', 'split', 'merged'")
     ddl: list[str] = Field(..., description="The optimized DDL statements")
     migrations: list[str] = Field(..., description="The data migration scripts")
     design_note: Optional[str] = Field(None, description="Optional design note explaining the optimization choices")

@@ -373,8 +373,6 @@ def list_tasks(
             "completed_at": str(task.completed_at),
             "model_id": model_id
         })
-
-    logger.info(f"Listed {len(task_list)} tasks: {task_list}")
     return task_list
 
 

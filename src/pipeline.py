@@ -130,6 +130,7 @@ def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
         start_time = time()
         opt_response = llm_call_with_so_and_fallback(llm, prompt1, models.DBOptimizationResponse)
         log.success(f"✅ [{task_id}] DDL/Migration generation completed in {time() - start_time:.2f}s")
+        log.debug(f"[{task_id}] LLM:\n{opt_response.model_dump_json(indent=2)}")
 
         ddl_string = "\n".join(opt_response.ddl)
         log.debug(f"[{task_id}] Optimized DDL from LLM:\n{ddl_string}")

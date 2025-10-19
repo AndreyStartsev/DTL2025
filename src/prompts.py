@@ -16,7 +16,7 @@ Your summary should be concise and focused on actionable insights that will be u
 Database Analysis:
 {db_analysis}
 
-Existing DDL:
+Existing Schema DDL:
 {ddl}
 
 Queries Statistics:

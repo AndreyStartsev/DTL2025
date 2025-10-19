@@ -19,11 +19,12 @@ def get_llm(model_name: str, max_tokens=16000, provider="openrouter") -> ChatOpe
     if provider == "ollama":
         ollama_host = os.getenv("OLLAMA_HOST", "212.111.86.90")
         ollama_port = os.getenv("OLLAMA_PORT", "11434")
-        print(f"🟣🟠🟡🟢🔵Using Ollama LLM at {ollama_host}:{ollama_port}")
+        ollama_model = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+        print(f"🔵🟣🟣🟣🔵Using Ollama LLM at {ollama_host}:{ollama_port}")
         return ChatOpenAI(
             openai_api_key="ollama",  # Required but ignored by Ollama
             openai_api_base=f"http://{ollama_host}:{ollama_port}/v1",
-            model_name="llama3.1:8b",
+            model_name=ollama_model,
             max_tokens=max_tokens,
             temperature=0.0,
         )
