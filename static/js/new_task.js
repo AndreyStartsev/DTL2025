@@ -35,49 +35,48 @@ function initializeOllamaToggle() {
     const modelHelpText = document.getElementById('modelHelpText');
     const ollamaHelpText = document.getElementById('ollamaHelpText');
 
-    console.log('Initializing Ollama toggle...');
-    console.log('ollamaToggle element:', ollamaToggle);
-    console.log('modelSelect element:', modelSelect);
-    console.log('modelHelpText element:', modelHelpText);
-    console.log('ollamaHelpText element:', ollamaHelpText);
+
+
+
+
+
 
     if (ollamaToggle && modelSelect) {
         ollamaToggle.addEventListener('change', function() {
-            console.log('Ollama toggle changed! Checked:', this.checked);
+
 
             if (this.checked) {
                 // Disable model selection and gray it out
-                console.log('Disabling model select...');
+
                 modelSelect.disabled = true;
 
                 // Show Ollama help text, hide model help text
                 if (modelHelpText) {
                     modelHelpText.classList.add('d-none');
-                    console.log('Hidden modelHelpText');
+
                 }
                 if (ollamaHelpText) {
                     ollamaHelpText.classList.remove('d-none');
-                    console.log('Shown ollamaHelpText');
+
                 }
             } else {
                 // Enable model selection
-                console.log('Enabling model select...');
+
                 modelSelect.disabled = false;
 
                 // Hide Ollama help text, show model help text
                 if (modelHelpText) {
                     modelHelpText.classList.remove('d-none');
-                    console.log('Shown modelHelpText');
+
                 }
                 if (ollamaHelpText) {
                     ollamaHelpText.classList.add('d-none');
-                    console.log('Hidden ollamaHelpText');
+
                 }
             }
 
-            console.log('Model select disabled state:', modelSelect.disabled);
+
         });
-        console.log('Event listener attached successfully');
     } else {
         console.error('Failed to initialize Ollama toggle - missing elements');
         if (!ollamaToggle) console.error('ollamaToggle element not found');
