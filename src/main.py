@@ -1,6 +1,5 @@
 # app/main.py
 import uuid
-import difflib
 import datetime
 import sqlparse
 from typing import Dict, Any, List, Optional
@@ -42,6 +41,8 @@ app = FastAPI(
     description="""
 An intelligent API service that asynchronously analyzes and optimizes database schemas and SQL queries.
 
+[Swagger UI](/docs) | [ReDoc](/redoc)
+
 ### Features
 
 * **Schema Analysis**: Deep analysis of database structure and relationships
@@ -66,13 +67,18 @@ An intelligent API service that asynchronously analyzes and optimizes database s
 
 Tasks that exceed {TASK_TIMEOUT_MINUTES} minutes are automatically marked as `FAILED`.
     """,
-    version="1.0.0",
+    version="1.5.0",
     contact={
         "email": "vvirsys@gmail.com"
     },
     openapi_tags=tags_metadata,
     docs_url="/docs",
     redoc_url="/redoc",
+    swagger_ui_parameters={
+        "defaultModelsExpandDepth": -1,  # Hide models section by default
+        "syntaxHighlight.theme": "github",  # Set syntax highlighting theme
+        "displayRequestDuration": True,  # Show request duration
+    }
 )
 
 TASK_TIMEOUT_MINUTES = 20

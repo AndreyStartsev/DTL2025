@@ -27,6 +27,65 @@ function initializeStrategySelector() {
 }
 
 /**
+ * Initialize Ollama toggle functionality
+ */
+function initializeOllamaToggle() {
+    const ollamaToggle = document.getElementById('ollamaToggle');
+    const modelSelect = document.getElementById('modelSelect');
+    const modelHelpText = document.getElementById('modelHelpText');
+    const ollamaHelpText = document.getElementById('ollamaHelpText');
+
+    console.log('Initializing Ollama toggle...');
+    console.log('ollamaToggle element:', ollamaToggle);
+    console.log('modelSelect element:', modelSelect);
+    console.log('modelHelpText element:', modelHelpText);
+    console.log('ollamaHelpText element:', ollamaHelpText);
+
+    if (ollamaToggle && modelSelect) {
+        ollamaToggle.addEventListener('change', function() {
+            console.log('Ollama toggle changed! Checked:', this.checked);
+
+            if (this.checked) {
+                // Disable model selection and gray it out
+                console.log('Disabling model select...');
+                modelSelect.disabled = true;
+
+                // Show Ollama help text, hide model help text
+                if (modelHelpText) {
+                    modelHelpText.classList.add('d-none');
+                    console.log('Hidden modelHelpText');
+                }
+                if (ollamaHelpText) {
+                    ollamaHelpText.classList.remove('d-none');
+                    console.log('Shown ollamaHelpText');
+                }
+            } else {
+                // Enable model selection
+                console.log('Enabling model select...');
+                modelSelect.disabled = false;
+
+                // Hide Ollama help text, show model help text
+                if (modelHelpText) {
+                    modelHelpText.classList.remove('d-none');
+                    console.log('Shown modelHelpText');
+                }
+                if (ollamaHelpText) {
+                    ollamaHelpText.classList.add('d-none');
+                    console.log('Hidden ollamaHelpText');
+                }
+            }
+
+            console.log('Model select disabled state:', modelSelect.disabled);
+        });
+        console.log('Event listener attached successfully');
+    } else {
+        console.error('Failed to initialize Ollama toggle - missing elements');
+        if (!ollamaToggle) console.error('ollamaToggle element not found');
+        if (!modelSelect) console.error('modelSelect element not found');
+    }
+}
+
+/**
  * Validate task data JSON
  * @param {object} data - Parsed JSON data
  * @throws {Error} if validation fails
@@ -86,6 +145,11 @@ async function handleCreateTaskSubmit(e, onSuccess) {
     const taskDataJson = document.getElementById('taskDataJson');
     const strategySelect = document.getElementById('strategySelect');
     const modelSelect = document.getElementById('modelSelect');
+    const ollamaToggle = document.getElementById('ollamaToggle');
+
+    console.log('=== Form Submit ===');
+    console.log('Ollama toggle checked:', ollamaToggle ? ollamaToggle.checked : 'element not found');
+    console.log('Model select disabled:', modelSelect ? modelSelect.disabled : 'element not found');
 
     // Disable submit button and show spinner
     createSubmitBtn.disabled = true;
@@ -104,6 +168,10 @@ async function handleCreateTaskSubmit(e, onSuccess) {
         // Validate task data
         validateTaskData(data);
 
+        // Determine use_ollama value
+        const useOllama = ollamaToggle ? ollamaToggle.checked : false;
+        console.log('use_ollama value:', useOllama);
+
         // Build payload
         const payload = {
             ...data,
@@ -111,9 +179,12 @@ async function handleCreateTaskSubmit(e, onSuccess) {
                 strategy: strategySelect.value,
                 model_id: modelSelect.value,
                 context_length: 16000,
-                batch_size: 5
+                batch_size: 5,
+                use_ollama: useOllama
             }
         };
+
+        console.log('Payload config:', JSON.stringify(payload.config, null, 2));
 
         // Submit to API
         const response = await fetch('/new', {
@@ -121,6 +192,8 @@ async function handleCreateTaskSubmit(e, onSuccess) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
+
+        console.log('Response status:', response.status);
 
         if (response.ok) {
             // Success - hide modal and reset form
@@ -134,6 +207,14 @@ async function handleCreateTaskSubmit(e, onSuccess) {
             const strategyDescription = document.getElementById('strategyDescription');
             if (strategyDescription) {
                 strategyDescription.innerHTML = strategyDescriptions['balanced'];
+            }
+
+            // Reset Ollama toggle state
+            if (ollamaToggle) {
+                ollamaToggle.checked = false;
+                const changeEvent = new Event('change');
+                ollamaToggle.dispatchEvent(changeEvent);
+                console.log('Reset ollama toggle to false');
             }
 
             // Call success callback
@@ -167,12 +248,22 @@ async function handleCreateTaskSubmit(e, onSuccess) {
  * @param {Function} onSuccess - Callback on successful task creation
  */
 function initializeCreateTaskForm(onSuccess) {
+    console.log('=== Initializing Create Task Form ===');
+
     const createTaskForm = document.getElementById('createTaskForm');
 
     if (createTaskForm) {
         createTaskForm.addEventListener('submit', (e) => handleCreateTaskSubmit(e, onSuccess));
+        console.log('Form submit handler attached');
+    } else {
+        console.error('createTaskForm element not found!');
     }
 
     // Initialize strategy selector
     initializeStrategySelector();
+
+    // Initialize Ollama toggle
+    initializeOllamaToggle();
+
+    console.log('=== Initialization Complete ===');
 }

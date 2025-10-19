@@ -148,6 +148,8 @@ function smartSplitColumns(columnsBlock) {
 /**
  * Sanitize column type for Mermaid ERD
  * Removes REFERENCES clauses and problematic characters
+ * @param {string} typeString - Raw type string
+ * @returns {string} Sanitized type safe for Mermaid
  */
 function sanitizeColumnType(typeString) {
     if (!typeString) return 'unknown';
@@ -159,11 +161,15 @@ function sanitizeColumnType(typeString) {
     cleaned = cleaned.replace(/\s+CHECK\s*\(.+?\)/gi, '');
     cleaned = cleaned.replace(/\s+DEFAULT\s+.+?(?=\s+|$)/gi, '');
 
-    // Replace problematic characters for Mermaid
-    cleaned = cleaned.replace(/[.\s,()]+/g, '_');
+    // Replace problematic characters for Mermaid (including forward slash!)
+    // Mermaid doesn't allow: . , ( ) / < > in type names
+    cleaned = cleaned.replace(/[.\s,()/<>]+/g, '_');
 
     // Remove trailing/leading underscores
     cleaned = cleaned.replace(/^_+|_+$/g, '');
+
+    // Ensure we have a valid identifier
+    cleaned = cleaned.replace(/[^a-zA-Z0-9_]/g, '');
 
     // If empty after cleaning, use 'unknown'
     return cleaned || 'unknown';
@@ -335,6 +341,74 @@ function parseDdl(ddlString) {
 }
 
 /**
+ * Generate Mermaid from JSON schema object (for optimized schema)
+ * @param {Object} schema - JSON schema object with properties
+ * @returns {string} Mermaid ERD syntax
+ */
+function generateOptimizedMermaid(schema) {
+    if (!schema || !schema.properties) {
+        return '%% No schema available';
+    }
+
+    let mermaid = 'erDiagram\n';
+    const mainEntity = 'Event';
+
+    // Helper function to sanitize type names for Mermaid
+    function sanitizeType(type) {
+        if (!type) return 'ANY';
+        // Replace problematic characters including /
+        return type
+            .replace(/[\/\s,().<>]+/g, '_')
+            .replace(/[^a-zA-Z0-9_]/g, '')
+            .toUpperCase() || 'ANY';
+    }
+
+    // Helper to get simplified type
+    function getSimplifiedType(prop) {
+        if (prop.type) {
+            if (Array.isArray(prop.type)) {
+                return sanitizeType(prop.type.join('_'));
+            }
+            return sanitizeType(prop.type);
+        }
+        if (prop.anyOf || prop.oneOf) {
+            const types = (prop.anyOf || prop.oneOf).map(t => t.type || 'any');
+            return sanitizeType(types.join('_'));
+        }
+        return 'ANY';
+    }
+
+    // Helper to determine if property is likely a foreign key
+    function isForeignKey(name) {
+        return name.endsWith('_id') ||
+               name.endsWith('Id') ||
+               name === 'id' ||
+               name.includes('reference');
+    }
+
+    // Process main entity
+    mermaid += `    ${mainEntity} {\n`;
+
+    for (const [key, prop] of Object.entries(schema.properties)) {
+        const type = getSimplifiedType(prop);
+        const isFK = isForeignKey(key);
+        const keyType = isFK ? 'FK' : (key === 'id' ? 'PK' : '');
+        const description = prop.description || key;
+
+        // Truncate long descriptions
+        const shortDesc = description.length > 30
+            ? description.substring(0, 27) + '...'
+            : description;
+
+        mermaid += `        ${type} ${key} ${keyType ? `"${keyType}"` : ''}\n`;
+    }
+
+    mermaid += '    }\n';
+
+    return mermaid;
+}
+
+/**
  * --- CORRECTED FOR ORIGINAL SCHEMA ---
  * This function is now more robust and handles different JSON structures for the original schema data.
  * It also logs the received data structure to the console for easier debugging.
@@ -373,7 +447,7 @@ function generateMermaidFromSchemaObject(schemaData) {
                 const pk = col.is_primary_key ? ' PK' : '';
                 const fk = col.is_foreign_key ? ' FK' : '';
                 const sanitizedType = sanitizeColumnType(col.type);
-                mermaidCode += `        ${sanitizedType} ${col.name} "${(pk + fk).trim()}"\n`;
+                mermaidCode += `        ${sanitizedType} ${col.name}${(pk + fk).trim() ? ` "${(pk + fk).trim()}"` : ''}\n`;
             });
         }
         mermaidCode += '    }\n';
@@ -398,7 +472,7 @@ function generateMermaidFromDDL(ddlString) {
         mermaidCode += `    ${mermaidTableName} {\n`;
         tables[tableName].columns.forEach(col => {
             const attrs = col.attributes.join(' ').trim();
-            mermaidCode += `        ${col.type} ${col.name} ${attrs ? `"${attrs}"` : ''}\n`;
+            mermaidCode += `        ${col.type} ${col.name}${attrs ? ` "${attrs}"` : ''}\n`;
         });
         mermaidCode += '    }\n';
     }
