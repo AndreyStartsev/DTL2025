@@ -838,7 +838,7 @@ code.inline {
 }
 
 #createTaskModal .modal-body::-webkit-scrollbar-thumb:hover {
-    background-color: var(--bs-primary-dark);
+    background-color: rgba(var(--bs-primary-rgb), 0.85);
 }
 
 /* ============================================================================
