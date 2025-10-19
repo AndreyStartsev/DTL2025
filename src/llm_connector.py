@@ -17,7 +17,7 @@ load_dotenv(find_dotenv())
 def get_llm(model_name: str, max_tokens=16000, provider="openrouter") -> ChatOpenAI:
     """Initializes and returns a ChatOpenAI instance for OpenRouter."""
     if provider == "ollama":
-        ollama_host = os.getenv("OLLAMA_HOST", "212.111.86.90")
+        ollama_host = os.getenv("OLLAMA_HOST", "localhost")
         ollama_port = os.getenv("OLLAMA_PORT", "11434")
         ollama_model = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
         print(f"🔵🟣🟣🟣🔵Using Ollama LLM at {ollama_host}:{ollama_port}")
