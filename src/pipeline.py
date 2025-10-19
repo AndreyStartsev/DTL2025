@@ -51,7 +51,9 @@ def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
         config = request_data.config
 
         # --- Step 0: Initial setup ---
-        llm = get_llm(model_name=config.model_id, max_tokens=config.context_length)
+        provider = "openrouter" if not config.use_ollama else "ollama"
+        model_id = config.model_id if not config.use_ollama else "ollama/local-ollama-model"
+        llm = get_llm(model_name=config.model_id, max_tokens=config.context_length, provider=provider)
         input_dict = request_data.model_dump()
 
         # Prepare DDL and Queries as simple strings for prompts
@@ -105,7 +107,7 @@ def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
             queries_stats=queries_stats,
             strategy=strategy
         )
-        log.info(f"[{task_id}] Calling LLM ({config.model_id}) for expert review...")
+        log.info(f"[{task_id}] Calling LLM ({model_id}) for expert review...")
         start_time = time()
         expert_response = llm_call_with_so_and_fallback(llm, prompt0, models.DBRecomendationResponse)
         log.success(f"✅ [{task_id}] Expert review completed in {time() - start_time:.2f}s")
@@ -124,7 +126,7 @@ def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
             schema_actions=schema_actions,
         )
 
-        log.info(f"[{task_id}] Calling LLM ({config.model_id}) for DDL and migration optimization...")
+        log.info(f"[{task_id}] Calling LLM ({model_id}) for DDL and migration optimization...")
         start_time = time()
         opt_response = llm_call_with_so_and_fallback(llm, prompt1, models.DBOptimizationResponse)
         log.success(f"✅ [{task_id}] DDL/Migration generation completed in {time() - start_time:.2f}s")
@@ -196,7 +198,18 @@ def run_analysis_pipeline(task_id: str, request_data: models.NewTaskRequest):
                         f"rewritten queries but expected {batch_size} queries."
                     )
                     log.error(f"[{task_id}] {error_msg}")
-                    raise ValueError(error_msg)
+                    # Try a second attempt for this batch
+                    log.info(f"[{task_id}] Retrying batch {batch_num}...")
+                    batch_prompt += (
+                        f"\n\n**RETRY**: Previous attempt returned {len(batch_response.queries)} queries. "
+                        f"Please ensure you return EXACTLY {batch_size} rewritten queries for this batch."
+                    )
+                    batch_response = llm_call_with_so_and_fallback(llm, batch_prompt, models.RewrittenQueries)
+                    if len(batch_response.queries) != batch_size:
+                        # add empty strings to match the expected count
+                        log.error(f"[{task_id}] Retry for batch {batch_num} also failed.")
+                        empty_queries_to_add = batch_size - len(batch_response.queries)
+                        batch_response.queries.extend([""] * empty_queries_to_add)
 
                 all_rewritten_queries.extend(batch_response.queries)
 

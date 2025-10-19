@@ -69,6 +69,7 @@ class TaskConfig(BaseModel):
     model_id: str = Field("meta-llama/llama-4-maverick", description="The model ID to use from OpenRouter")
     context_length: Optional[int] = Field(16000, description="Optional context length for the model")
     batch_size: Optional[int] = Field(5, description="Optional batch size for processing queries")
+    use_ollama: Optional[bool] = Field(False, description="Whether to use Ollama as the LLM provider. In this case, model ID is ignored.")
 
 class NewTaskRequest(BaseModel):
     url: str

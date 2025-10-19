@@ -356,16 +356,18 @@ def list_tasks(
         tasks = crud.get_tasks_with_newest_first(db, skip=skip, limit=limit, status=status)
     else:
         tasks = crud.get_tasks(db, skip=skip, limit=limit, status=status)
-    task_list = [
-        {
-            "taskid": t.id,
-            "status": t.status,
-            "submitted_at": str(t.submitted_at),
-            "completed_at": str(t.completed_at),
-            "model_id": t.original_input.get('config', {}).get('model_id')
-        }
-        for t in tasks
-    ]
+    task_list = []
+    for task in tasks:
+        is_ollama = task.original_input.get('config', {}).get('use_ollama', False)
+        model_id = task.original_input.get('config', {}).get('model_id') if not is_ollama else "Local Ollama Model"
+        task_list.append({
+            "taskid": task.id,
+            "status": task.status,
+            "submitted_at": str(task.submitted_at),
+            "completed_at": str(task.completed_at),
+            "model_id": model_id
+        })
+
     logger.info(f"Listed {len(task_list)} tasks: {task_list}")
     return task_list
 

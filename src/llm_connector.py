@@ -14,8 +14,20 @@ class RewrittenQueries(BaseModel):
 
 load_dotenv(find_dotenv())
 
-def get_llm(model_name: str, max_tokens=16000) -> ChatOpenAI:
+def get_llm(model_name: str, max_tokens=16000, provider="openrouter") -> ChatOpenAI:
     """Initializes and returns a ChatOpenAI instance for OpenRouter."""
+    if provider == "ollama":
+        ollama_host = os.getenv("OLLAMA_HOST", "212.111.86.90")
+        ollama_port = os.getenv("OLLAMA_PORT", "11434")
+        print(f"🟣🟠🟡🟢🔵Using Ollama LLM at {ollama_host}:{ollama_port}")
+        return ChatOpenAI(
+            openai_api_key="ollama",  # Required but ignored by Ollama
+            openai_api_base=f"http://{ollama_host}:{ollama_port}/v1",
+            model_name="llama3.1:8b",
+            max_tokens=max_tokens,
+            temperature=0.0,
+        )
+
     return ChatOpenAI(
         openai_api_key=os.getenv("OPENROUTER_API_KEY", ""),
         openai_api_base="https://openrouter.ai/api/v1",
@@ -34,7 +46,8 @@ def llm_call_with_so(model: ChatOpenAI, prompt: str, output_format: BaseModel) -
 
 def llm_call_with_so_and_fallback(model: ChatOpenAI, prompt: str, output_format: BaseModel,
                                   num_retries: int = 5,
-                                  fallback_model_id="google/gemini-2.5-flash") -> BaseModel:
+                                  fallback_model_id="google/gemini-2.5-flash",
+                                  provider="openrouter") -> BaseModel:
     for attempt in range(num_retries):
         # for last attempt use fallback model
         if attempt == num_retries - 2:
@@ -48,7 +61,7 @@ def llm_call_with_so_and_fallback(model: ChatOpenAI, prompt: str, output_format:
             test_call = model.invoke(prompt)
             logger.info(f"Fallback model response (truncated): {test_call}...")
         try:
-            return llm_call_with_so(model, prompt, output_format)
+            return llm_call_with_so(model, prompt, output_format,)
         except Exception as e:
             logger.error(f"Attempt {attempt + 1} failed: {e}")
     raise ValueError(f"All {num_retries} attempts failed for LLM call.")
